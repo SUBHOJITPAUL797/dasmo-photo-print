@@ -1,0 +1,2 @@
+sed -i 's/fun HomeScreen(/fun HomeScreen(\n    isAdmin: Boolean = false,\n    onAdminClicked: () -> Unit = {},\n    onLogoutClicked: () -> Unit = {},\n/g' /app/applet/app/src/main/java/com/example/ui/screens/HomeScreen.kt
+sed -i 's/Row(/Row(\n                        modifier = Modifier.fillMaxWidth(),\n                        horizontalArrangement = Arrangement.SpaceBetween,\n/g' /app/applet/app/src/main/java/com/example/ui/screens/HomeScreen.kt

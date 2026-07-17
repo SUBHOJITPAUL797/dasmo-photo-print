@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Rules for the users collection (Handling custom Device-Binding Auth)
+    match /users/{userId} {
+      // In a production environment, you would use Firebase Authentication 
+      // (request.auth != null) to secure these endpoints. 
+      // Because this app uses a custom hardware-binding authentication system, 
+      // we allow read/write access so the app can verify and bind device IDs.
+      allow read, write: if true;
+    }
+    
+    // Future-proofing for other collections (like a todo list)
+    match /todos/{todoId} {
+      allow read, write: if true;
+    }
+  }
+}

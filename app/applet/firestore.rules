@@ -1,0 +1,29 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    match /users/{email} {
+      // Anyone can read user statuses to verify login
+      allow read: if true;
+      
+      // Ensure users can only create themselves as 'user' and 'pending',
+      // except for the admin email.
+      allow create: if 
+        (email == "subhojitpaul26042004@gmail.com" && request.resource.data.role == "admin" && request.resource.data.status == "approved") || 
+        (email != "subhojitpaul26042004@gmail.com" && request.resource.data.role == "user" && request.resource.data.status == "pending");
+
+      // For updates (like logging in and updating session tokens):
+      // Users cannot change their own role. 
+      allow update: if 
+        request.resource.data.role == resource.data.role;
+
+      allow delete: if false; // No one can delete accounts from the app directly
+    }
+    
+    // Default rule for other collections (like your photos/projects data)
+    // If you add more collections later, you can restrict them here.
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

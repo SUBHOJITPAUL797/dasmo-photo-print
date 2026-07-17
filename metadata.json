@@ -1,0 +1,6 @@
+{
+  "name": "DASMO PHOTO PRINT",
+  "description": "Create print-ready layouts of passport, visa, and custom photo dimensions on A4 paper with precision, cutting guides, and joint photo capabilities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
