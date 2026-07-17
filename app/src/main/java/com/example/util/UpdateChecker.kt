@@ -16,7 +16,7 @@ object UpdateChecker {
 
     private const val PREF_GITHUB_OWNER = "update_github_owner"
     private const val PREF_GITHUB_REPO = "update_github_repo"
-    private const val DEFAULT_OWNER = "subhojitpaul26042004"
+    private const val DEFAULT_OWNER = "SUBHOJITPAUL797"
     private const val DEFAULT_REPO = "dasmo-photo-print"
 
     fun getGithubOwner(context: Context): String {
