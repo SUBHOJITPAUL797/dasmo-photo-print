@@ -549,6 +549,193 @@ fun ExportScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // PRINTER ALIGNMENT CALIBRATION CARD (Feature 4)
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("printer_calibration_card"),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.Tune,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Printer Alignment Calibration",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = "Calibrate margins (±mm) to align with physical printer paper feed trays.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = viewModel.topOffsetMm,
+                                onValueChange = {
+                                    viewModel.topOffsetMm = it
+                                    viewModel.computeCurrentLayout()
+                                    viewModel.saveProjectPdf(context, localCachePdfUri)
+                                },
+                                label = { Text("Top Offset (mm)") },
+                                modifier = Modifier.weight(1f).testTag("top_offset_field")
+                            )
+
+                            OutlinedTextField(
+                                value = viewModel.leftOffsetMm,
+                                onValueChange = {
+                                    viewModel.leftOffsetMm = it
+                                    viewModel.computeCurrentLayout()
+                                    viewModel.saveProjectPdf(context, localCachePdfUri)
+                                },
+                                label = { Text("Left Offset (mm)") },
+                                modifier = Modifier.weight(1f).testTag("left_offset_field")
+                            )
+                        }
+                    }
+                }
+
+                // CYBER CAFE BUSINESS COST CALCULATOR & INVOICING CARD (Feature 5)
+                Card(
+                    modifier = Modifier.fillMaxWidth().testTag("business_cost_calculator_card"),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ReceiptLong,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Cyber Café Cost Calculator & Billing",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = viewModel.customerName,
+                                onValueChange = { viewModel.customerName = it },
+                                label = { Text("Customer Name") },
+                                modifier = Modifier.weight(1f).testTag("customer_name_field")
+                            )
+
+                            OutlinedTextField(
+                                value = viewModel.customerPhone,
+                                onValueChange = { viewModel.customerPhone = it },
+                                label = { Text("Phone Number") },
+                                modifier = Modifier.weight(1f).testTag("customer_phone_field")
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = viewModel.ratePerSheet,
+                                onValueChange = { viewModel.ratePerSheet = it },
+                                label = { Text("Rate / Sheet (₹)") },
+                                modifier = Modifier.weight(1f).testTag("rate_per_sheet_field")
+                            )
+
+                            OutlinedTextField(
+                                value = viewModel.extraServicesFee,
+                                onValueChange = { viewModel.extraServicesFee = it },
+                                label = { Text("Edits/Suit Fee (₹)") },
+                                modifier = Modifier.weight(1f).testTag("extra_fee_field")
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        val totalSheets = viewModel.computedPages.size.coerceAtLeast(1)
+                        val rate = viewModel.ratePerSheet.toDoubleOrNull() ?: 20.0
+                        val extra = viewModel.extraServicesFee.toDoubleOrNull() ?: 0.0
+                        val totalBill = (totalSheets * rate) + extra
+
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "$totalSheets Sheet(s) @ ₹$rate/sheet + ₹$extra edits",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                    )
+                                    Text(
+                                        text = "Total Billing: ₹${String.format("%.2f", totalBill)}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Black,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+
+                                Button(
+                                    onClick = {
+                                        val cName = if (viewModel.customerName.isNotBlank()) viewModel.customerName else "Valued Customer"
+                                        val text = "🧾 *DASMO PHOTO PRINT BILL*\n\nCustomer: $cName\nJob: ${viewModel.filename}\nSheets: $totalSheets sheet(s)\nTotal Amount: ₹${String.format("%.2f", totalBill)}\n\nThank you for choosing DASMO Cyber Café!"
+                                        val intent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, text)
+                                        }
+                                        context.startActivity(Intent.createChooser(intent, "Share WhatsApp Invoice"))
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF25D366), // WhatsApp Green
+                                        contentColor = Color.White
+                                    )
+                                ) {
+                                    Text("Send Invoice", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // ACTION 1: Direct System Print Spooler (CRITICAL CORE REQUIREMENT)
                 Button(
                     onClick = {

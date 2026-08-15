@@ -24,7 +24,7 @@ class AuthViewModel : ViewModel() {
     var isOfflineBlocked by mutableStateOf(false)
         private set
     
-    private val db = FirebaseFirestore.getInstance(com.google.firebase.FirebaseApp.getInstance(), "default")
+    private val db = FirebaseFirestore.getInstance()
     
     var authState by mutableStateOf<AuthState>(AuthState.Loading)
         private set
@@ -337,6 +337,16 @@ class AuthViewModel : ViewModel() {
                     "status", "pending",
                     "currentSessionToken", ""
                 ).await()
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+    }
+
+    fun deleteUser(email: String) {
+        viewModelScope.launch {
+            try {
+                db.collection("users").document(email).delete().await()
             } catch (e: Exception) {
                 // Ignore
             }

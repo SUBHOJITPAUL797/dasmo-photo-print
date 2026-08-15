@@ -77,9 +77,35 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
     var spacingCm by mutableStateOf("0.2")
     var dpi by mutableStateOf(300)
     var cuttingGuidesEnabled by mutableStateOf(true)
+    var cuttingGuideThicknessPt by mutableStateOf(1.0f)
+    var cuttingGuideStyle by mutableStateOf("dashed")
+    var cuttingGuideColor by mutableStateOf(0xFF000000.toInt())
     var allowRotation by mutableStateOf(true)
     var pageOrientation by mutableStateOf(PageOrientation.PORTRAIT)
     var idCardArrangement by mutableStateOf("HORIZONTAL") // "HORIZONTAL" or "VERTICAL"
+
+    // Printer Alignment Calibration Offsets (mm)
+    var topOffsetMm by mutableStateOf("0.0")
+    var leftOffsetMm by mutableStateOf("0.0")
+
+    // Cyber Cafe Customer Billing Fields
+    var customerName by mutableStateOf("")
+    var customerPhone by mutableStateOf("")
+    var ratePerSheet by mutableStateOf("20.0")
+    var extraServicesFee by mutableStateOf("0.0")
+
+    // Batch Paper Saver items
+    val batchItems = mutableStateListOf<com.example.domain.model.BatchItem>()
+
+    fun addBatchItem(label: String, widthCm: Float, heightCm: Float, quantity: Int) {
+        batchItems.add(com.example.domain.model.BatchItem(label = label, widthCm = widthCm, heightCm = heightCm, quantity = quantity))
+        computeCurrentLayout()
+    }
+
+    fun removeBatchItem(id: String) {
+        batchItems.removeAll { it.id == id }
+        computeCurrentLayout()
+    }
 
     // Photo Assets State
     var photoAUri by mutableStateOf<Uri?>(null)
@@ -139,6 +165,9 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
             spacingCm = spacingCm,
             dpi = dpi,
             cuttingGuidesEnabled = cuttingGuidesEnabled,
+            cuttingGuideThicknessPt = cuttingGuideThicknessPt,
+            cuttingGuideStyle = cuttingGuideStyle,
+            cuttingGuideColor = cuttingGuideColor,
             allowRotation = allowRotation,
             jointSplitRatio = jointSplitRatio,
             jointDividerLinesEnabled = jointDividerLinesEnabled,
@@ -209,6 +238,9 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
         spacingCm = state.spacingCm
         dpi = state.dpi
         cuttingGuidesEnabled = state.cuttingGuidesEnabled
+        cuttingGuideThicknessPt = state.cuttingGuideThicknessPt
+        cuttingGuideStyle = state.cuttingGuideStyle
+        cuttingGuideColor = state.cuttingGuideColor
         allowRotation = state.allowRotation
         jointSplitRatio = state.jointSplitRatio
         jointDividerLinesEnabled = state.jointDividerLinesEnabled
@@ -240,6 +272,9 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
         spacingCm = "0.2"
         dpi = 300
         cuttingGuidesEnabled = true
+        cuttingGuideThicknessPt = 1.0f
+        cuttingGuideStyle = "dashed"
+        cuttingGuideColor = 0xFF000000.toInt()
         allowRotation = true
         pageOrientation = PageOrientation.PORTRAIT
 
@@ -307,6 +342,9 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
         val pWidth = if (pageOrientation == PageOrientation.PORTRAIT) 21.0f else 29.7f
         val pHeight = if (pageOrientation == PageOrientation.PORTRAIT) 29.7f else 21.0f
 
+        val topOff = topOffsetMm.toFloatOrNull() ?: 0.0f
+        val leftOff = leftOffsetMm.toFloatOrNull() ?: 0.0f
+
         val unitSize = getUnitSize()
         val settings = LayoutSettings(
             pageWidthCm = pWidth,
@@ -315,11 +353,25 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
             spacingCm = s,
             dpi = dpi,
             cuttingGuidesEnabled = cuttingGuidesEnabled,
-            allowRotation = finalAllowRotation
+            cuttingGuideThicknessPt = cuttingGuideThicknessPt,
+            cuttingGuideStyle = cuttingGuideStyle,
+            cuttingGuideColor = cuttingGuideColor,
+            allowRotation = finalAllowRotation,
+            topOffsetMm = topOff,
+            leftOffsetMm = leftOff
         )
 
         try {
-            computedPages = LayoutEngine.computeLayout(unitSize, q, settings)
+            if (mode == ProjectMode.BATCH_PAPER_SAVER) {
+                if (batchItems.isEmpty()) {
+                    // Pre-populate with default mixed set
+                    batchItems.add(com.example.domain.model.BatchItem(label = "India Passport", widthCm = 3.5f, heightCm = 4.5f, quantity = 4))
+                    batchItems.add(com.example.domain.model.BatchItem(label = "Stamp Size", widthCm = 2.0f, heightCm = 2.5f, quantity = 4))
+                }
+                computedPages = LayoutEngine.computeMixedBatchLayout(batchItems, settings)
+            } else {
+                computedPages = LayoutEngine.computeLayout(unitSize, q, settings)
+            }
             return true
         } catch (e: LayoutException) {
             // Smart layout auto-switching fallback:
@@ -382,7 +434,7 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
     fun handlePhotoCropped(bitmap: Bitmap, isPhotoA: Boolean) {
         if (isPhotoA) {
             cropABitmap = bitmap
-            if (mode == ProjectMode.SINGLE) {
+            if (mode == ProjectMode.SINGLE || mode == ProjectMode.BATCH_PAPER_SAVER) {
                 finalUnitBitmap = bitmap
                 // Proceed directly to preview
                 val success = computeCurrentLayout()
@@ -452,6 +504,51 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
         }
     }
 
+    fun applyFormalAttire(isPhotoA: Boolean, attireType: String) {
+        if (isPhotoA && cropABitmap != null) {
+            cropABitmap = BitmapUtils.drawFormalAttireOverlay(cropABitmap!!, attireType)
+            if (mode == ProjectMode.SINGLE || mode == ProjectMode.BATCH_PAPER_SAVER) {
+                finalUnitBitmap = cropABitmap
+            }
+        } else if (!isPhotoA && cropBBitmap != null) {
+            cropBBitmap = BitmapUtils.drawFormalAttireOverlay(cropBBitmap!!, attireType)
+        }
+        if (mode == ProjectMode.JOINT || mode == ProjectMode.ID_CARD) {
+            generateJointComposite()
+        }
+        pushHistoryStateDebounced()
+    }
+
+    fun applyAutoRetouch(isPhotoA: Boolean) {
+        if (isPhotoA && cropABitmap != null) {
+            cropABitmap = BitmapUtils.applyAutoLightingAndRetouching(cropABitmap!!)
+            if (mode == ProjectMode.SINGLE || mode == ProjectMode.BATCH_PAPER_SAVER) {
+                finalUnitBitmap = cropABitmap
+            }
+        } else if (!isPhotoA && cropBBitmap != null) {
+            cropBBitmap = BitmapUtils.applyAutoLightingAndRetouching(cropBBitmap!!)
+        }
+        if (mode == ProjectMode.JOINT || mode == ProjectMode.ID_CARD) {
+            generateJointComposite()
+        }
+        pushHistoryStateDebounced()
+    }
+
+    fun applyBackdropColor(isPhotoA: Boolean, color: Int) {
+        if (isPhotoA && cropABitmap != null) {
+            cropABitmap = BitmapUtils.applyBackdropColor(cropABitmap!!, color)
+            if (mode == ProjectMode.SINGLE || mode == ProjectMode.BATCH_PAPER_SAVER) {
+                finalUnitBitmap = cropABitmap
+            }
+        } else if (!isPhotoA && cropBBitmap != null) {
+            cropBBitmap = BitmapUtils.applyBackdropColor(cropBBitmap!!, color)
+        }
+        if (mode == ProjectMode.JOINT || mode == ProjectMode.ID_CARD) {
+            generateJointComposite()
+        }
+        pushHistoryStateDebounced()
+    }
+
     fun saveProjectPdf(context: Context, targetUri: Uri) {
         if (isSavingPdf) return
         isSavingPdf = true
@@ -480,6 +577,9 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
                         spacingCm = s,
                         dpi = dpi,
                         cuttingGuidesEnabled = cuttingGuidesEnabled,
+            cuttingGuideThicknessPt = cuttingGuideThicknessPt,
+            cuttingGuideStyle = cuttingGuideStyle,
+            cuttingGuideColor = cuttingGuideColor,
                         allowRotation = allowRotation
                     )
 
@@ -528,6 +628,9 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
                             spacingCm = s,
                             dpi = dpi,
                             cuttingGuidesEnabled = cuttingGuidesEnabled,
+            cuttingGuideThicknessPt = cuttingGuideThicknessPt,
+            cuttingGuideStyle = cuttingGuideStyle,
+            cuttingGuideColor = cuttingGuideColor,
                             allowRotation = allowRotation,
                             pdfFilePath = targetUri.toString(),
                             pageOrientation = pageOrientation.name
@@ -560,6 +663,9 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
                 spacingCm = project.spacingCm.toString()
                 dpi = project.dpi
                 cuttingGuidesEnabled = project.cuttingGuidesEnabled
+                cuttingGuideThicknessPt = project.cuttingGuideThicknessPt
+                cuttingGuideStyle = project.cuttingGuideStyle
+                cuttingGuideColor = project.cuttingGuideColor
                 allowRotation = project.allowRotation
                 pageOrientation = try {
                     PageOrientation.valueOf(project.pageOrientation)
@@ -589,8 +695,10 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
                 }
 
                 // Restore finalUnitBitmap
-                if (mode == ProjectMode.SINGLE) {
+                if (mode == ProjectMode.SINGLE || mode == ProjectMode.BATCH_PAPER_SAVER) {
                     finalUnitBitmap = cropABitmap
+                } else if (mode == ProjectMode.MULTI_PERSON) {
+                    finalUnitBitmap = cropABitmap ?: cropBBitmap
                 } else {
                     generateJointComposite()
                 }
@@ -621,6 +729,9 @@ data class HistoryState(
     val spacingCm: String,
     val dpi: Int,
     val cuttingGuidesEnabled: Boolean,
+    val cuttingGuideThicknessPt: Float,
+    val cuttingGuideStyle: String,
+    val cuttingGuideColor: Int,
     val allowRotation: Boolean,
     val jointSplitRatio: Float,
     val jointDividerLinesEnabled: Boolean,

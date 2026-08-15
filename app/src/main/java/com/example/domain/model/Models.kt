@@ -13,8 +13,28 @@ enum class ProjectMode {
     SINGLE,
     JOINT,
     ID_CARD,
-    MULTI_PERSON
+    MULTI_PERSON,
+    BATCH_PAPER_SAVER
 }
+
+data class PassportPresetSpec(
+    val id: String,
+    val title: String,
+    val widthCm: Float,
+    val heightCm: Float,
+    val category: String, // "India Standards", "US & Global Visas", "Cards & Stamps"
+    val hintText: String,
+    val defaultQty: Int = 16
+) : Serializable
+
+data class BatchItem(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val label: String,
+    val widthCm: Float,
+    val heightCm: Float,
+    val quantity: Int,
+    val photoUri: String? = null
+) : Serializable
 
 data class JointConfig(
     val photoAUri: String,
@@ -32,14 +52,19 @@ data class LayoutSettings(
     val spacingCm: Float = 0.2f,
     val dpi: Int = 300,
     val cuttingGuidesEnabled: Boolean = true,
-    val allowRotation: Boolean = true
+    val cuttingGuideThicknessPt: Float = 1.0f,
+    val cuttingGuideStyle: String = "dashed",
+    val cuttingGuideColor: Int = 0xFF000000.toInt(),
+    val allowRotation: Boolean = true,
+    val topOffsetMm: Float = 0.0f,
+    val leftOffsetMm: Float = 0.0f
 ) : Serializable
 
 @Entity(tableName = "projects")
 data class Project(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
-    val mode: String, // "SINGLE" or "JOINT"
+    val mode: String, // "SINGLE", "JOINT", "BATCH_PAPER_SAVER", etc.
     val unitWidthCm: Float,
     val unitHeightCm: Float,
     val quantity: Int,
@@ -53,10 +78,16 @@ data class Project(
     val spacingCm: Float = 0.2f,
     val dpi: Int = 300,
     val cuttingGuidesEnabled: Boolean = true,
+    val cuttingGuideThicknessPt: Float = 1.0f,
+    val cuttingGuideStyle: String = "dashed",
+    val cuttingGuideColor: Int = 0xFF000000.toInt(),
     val allowRotation: Boolean = true,
     val pdfFilePath: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
-    val pageOrientation: String = "PORTRAIT"
+    val pageOrientation: String = "PORTRAIT",
+    val customerName: String? = null,
+    val customerPhone: String? = null,
+    val billingAmount: Double? = null
 ) : Serializable
 
 enum class PageOrientation {

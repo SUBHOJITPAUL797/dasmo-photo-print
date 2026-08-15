@@ -25,8 +25,8 @@ object PdfExporter {
         val CM_TO_PT = 28.3465f
 
         // 1. Resample bitmap once to target DPI resolution
-        val targetPxW = (unitSize.widthCm * settings.dpi / 2.54f).toInt()
-        val targetPxH = (unitSize.heightCm * settings.dpi / 2.54f).toInt()
+        val targetPxW = (unitSize.widthCm * settings.dpi / 2.54f).toInt().coerceAtLeast(1)
+        val targetPxH = (unitSize.heightCm * settings.dpi / 2.54f).toInt().coerceAtLeast(1)
 
         val resampledBitmap = try {
             Bitmap.createScaledBitmap(croppedBitmap, targetPxW, targetPxH, true)
@@ -59,10 +59,10 @@ object PdfExporter {
         }
 
         val borderPaint = Paint().apply {
-            color = 0xFF999999.toInt()
+            color = settings.cuttingGuideColor
             style = Paint.Style.STROKE
-            strokeWidth = 0.3f
-            pathEffect = DashPathEffect(floatArrayOf(2f, 2f), 0f)
+            strokeWidth = settings.cuttingGuideThicknessPt
+            pathEffect = if (settings.cuttingGuideStyle == "dashed") DashPathEffect(floatArrayOf(4f, 4f), 0f) else null
         }
 
         var outputStream: java.io.OutputStream? = null
@@ -105,6 +105,8 @@ object PdfExporter {
                     val globalIndex = placementsCountBefore + placementIndex
                     val activeBmp = if (mode == "MULTI_PERSON") {
                         if (globalIndex < quantityA) (resampledBitmapA ?: resampledBitmap) else (resampledBitmapB ?: resampledBitmap)
+                    } else if (mode == "BATCH_PAPER_SAVER") {
+                        croppedBitmap
                     } else {
                         resampledBitmap
                     }

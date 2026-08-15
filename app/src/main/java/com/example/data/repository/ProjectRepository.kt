@@ -7,6 +7,8 @@ import kotlinx.coroutines.flow.Flow
 class ProjectRepository(private val projectDao: ProjectDao) {
     val allProjects: Flow<List<Project>> = projectDao.getAllProjects()
 
+    fun searchProjects(query: String): Flow<List<Project>> = projectDao.searchProjects(query)
+
     suspend fun insertProject(project: Project): Long {
         return projectDao.insertProject(project)
     }

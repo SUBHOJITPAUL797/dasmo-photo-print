@@ -46,6 +46,7 @@ fun HomeScreen(
     val context = LocalContext.current
     var projectToDelete by remember { mutableStateOf<Project?>(null) }
     var photoToPreview by remember { mutableStateOf<Project?>(null) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -58,20 +59,14 @@ fun HomeScreen(
                     )
                 },
                 actions = {
-                    if (isAdmin) {
-                        IconButton(onClick = onAdminClicked, modifier = Modifier.testTag("admin_panel_btn")) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Admin Panel",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                    IconButton(onClick = onLogoutClicked, modifier = Modifier.testTag("logout_btn")) {
+                    IconButton(
+                        onClick = { showSettingsDialog = true },
+                        modifier = Modifier.testTag("app_settings_btn")
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.ExitToApp,
-                            contentDescription = "Logout",
-                            tint = MaterialTheme.colorScheme.error
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "App Settings",
+                            tint = MaterialTheme.colorScheme.primary
                         )
                     }
                 },
@@ -235,46 +230,30 @@ fun HomeScreen(
                                 fontWeight = FontWeight.Medium
                             )
 
-                            // User Active Access Plan duration info
+                            // App Status Info
                             Spacer(modifier = Modifier.height(6.dp))
-                            val expiryText = if (viewModel.expiryTimeMs == 0L) {
-                                "Lifetime Access"
-                            } else {
-                                val timeLeftMs = viewModel.expiryTimeMs - System.currentTimeMillis()
-                                if (timeLeftMs > 0) {
-                                    val daysLeft = timeLeftMs / (1000 * 60 * 60 * 24)
-                                    val hoursLeft = (timeLeftMs / (1000 * 60 * 60)) % 24
-                                    val timeStr = if (daysLeft > 0) "$daysLeft days $hoursLeft hrs remaining" else "$hoursLeft hrs remaining"
-                                    "Active: $timeStr"
-                                } else {
-                                    "Access Plan Expired"
-                                }
-                            }
-
-                            val isExp = viewModel.isExpired
-                            val planColor = if (isExp) MaterialTheme.colorScheme.error else if (viewModel.expiryTimeMs == 0L) androidx.compose.ui.graphics.Color(0xFF2E7D32) else MaterialTheme.colorScheme.primary
-
+                            val statusColor = Color(0xFF2E7D32)
                             Card(
-                                colors = CardDefaults.cardColors(containerColor = planColor.copy(alpha = 0.12f)),
+                                colors = CardDefaults.cardColors(containerColor = statusColor.copy(alpha = 0.12f)),
                                 shape = RoundedCornerShape(8.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, planColor.copy(alpha = 0.5f))
+                                border = androidx.compose.foundation.BorderStroke(1.dp, statusColor.copy(alpha = 0.5f))
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
-                                        imageVector = if (isExp) Icons.Default.Warning else Icons.Default.CheckCircle,
+                                        imageVector = Icons.Default.CheckCircle,
                                         contentDescription = null,
-                                        tint = planColor,
+                                        tint = statusColor,
                                         modifier = Modifier.size(14.dp)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = expiryText,
+                                        text = "Full Version • Ready",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = planColor
+                                        color = statusColor
                                     )
                                 }
                             }
@@ -547,5 +526,121 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    if (showSettingsDialog) {
+        val googleAccount = com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context)
+        
+        AlertDialog(
+            onDismissRequest = { showSettingsDialog = false },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "App Settings",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(32.dp)
+                )
+            },
+            title = {
+                Text(
+                    text = "App Settings & Information",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // App details card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "DASMO PHOTO PRINT",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Cyber Café & Photo Studio Edition v1.0",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Status: Full Access Enabled (No Restrictions)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFF2E7D32),
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    // Google Drive Status Card
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.CloudUpload,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Google Drive Connection",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (googleAccount != null) "Connected: ${googleAccount.email}" else "Not Connected (Connect in Export Screen)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    // Print Specs Info
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "Default Print Specifications",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "• Resolution: 300 DPI High-Quality\n• Standard Sizes: A4, 4x6, 5x7, 8x10, Custom\n• Photo Types: Single Passport, Joint Photo, Stamp Size",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showSettingsDialog = false }
+                ) {
+                    Text("Close")
+                }
+            }
+        )
     }
 }

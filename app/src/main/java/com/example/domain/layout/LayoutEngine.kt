@@ -76,18 +76,21 @@ object LayoutEngine {
         val pagesNeeded = kotlin.math.ceil(quantity.toDouble() / maxCapacity).toInt()
         val pages = mutableListOf<PageLayout>()
 
+        val startX = settings.marginCm + (settings.leftOffsetMm / 10f)
+        val startY = settings.marginCm + (settings.topOffsetMm / 10f)
+
         for (p in 0 until pagesNeeded) {
             val placements = mutableListOf<UnitPlacement>()
             var remainingItemsOnPage = minOf(maxCapacity, quantity - p * maxCapacity)
 
-            var currentY = settings.marginCm
+            var currentY = startY
             var currentPlacementRowIndex = 0
 
             // 1. Pack Normal Rows
             for (r in 0 until bestN1) {
                 for (c in 0 until colsNormal) {
                     if (remainingItemsOnPage > 0) {
-                        val xCm = settings.marginCm + c * (cellWNormal + settings.spacingCm)
+                        val xCm = startX + c * (cellWNormal + settings.spacingCm)
                         placements.add(
                             UnitPlacement(
                                 colIndex = c,
@@ -110,7 +113,7 @@ object LayoutEngine {
             for (r in 0 until bestN2) {
                 for (c in 0 until colsRotated) {
                     if (remainingItemsOnPage > 0) {
-                        val xCm = settings.marginCm + c * (cellWRotated + settings.spacingCm)
+                        val xCm = startX + c * (cellWRotated + settings.spacingCm)
                         placements.add(
                             UnitPlacement(
                                 colIndex = c,
@@ -138,6 +141,111 @@ object LayoutEngine {
                     rows = bestN1 + bestN2,
                     cellWidthCm = if (bestN2 > 0 && bestN1 == 0) cellWRotated else cellWNormal,
                     cellHeightCm = if (bestN2 > 0 && bestN1 == 0) cellHRotated else cellHNormal
+                )
+            )
+        }
+
+        return pages
+    }
+
+    /**
+     * Compute multi-photo mixed batch layout packing (Paper Saver Mode).
+     * Places different sized photo items (e.g. 4 Passport + 4 Stamp + 2 Joint) on 1 page efficiently.
+     */
+    fun computeMixedBatchLayout(
+        batchItems: List<BatchItem>,
+        settings: LayoutSettings
+    ): List<PageLayout> {
+        val usableW = settings.pageWidthCm - 2 * settings.marginCm
+        val usableH = settings.pageHeightCm - 2 * settings.marginCm
+
+        if (usableW <= 0f || usableH <= 0f || batchItems.isEmpty()) {
+            return emptyList()
+        }
+
+        val startX = settings.marginCm + (settings.leftOffsetMm / 10f)
+        val startY = settings.marginCm + (settings.topOffsetMm / 10f)
+
+        val pages = mutableListOf<PageLayout>()
+        var currentPagePlacements = mutableListOf<UnitPlacement>()
+        var currentPageIndex = 0
+
+        var curX = startX
+        var curY = startY
+        var rowMaxH = 0f
+        var colIndex = 0
+        var rowIndex = 0
+
+        // Expand all items to individual placements
+        for (item in batchItems) {
+            for (i in 0 until item.quantity) {
+                val itemW = item.widthCm
+                val itemH = item.heightCm
+
+                // Check if fits horizontally in current row
+                if (curX + itemW > startX + usableW && curX > startX) {
+                    // Move to next row
+                    curX = startX
+                    curY += rowMaxH + settings.spacingCm
+                    rowMaxH = 0f
+                    colIndex = 0
+                    rowIndex++
+                }
+
+                // Check if fits vertically on current page
+                if (curY + itemH > startY + usableH) {
+                    // Save current page layout and start new page
+                    if (currentPagePlacements.isNotEmpty()) {
+                        pages.add(
+                            PageLayout(
+                                pageIndex = currentPageIndex++,
+                                placements = currentPagePlacements,
+                                isRotated = false,
+                                cols = colIndex + 1,
+                                rows = rowIndex + 1,
+                                cellWidthCm = itemW,
+                                cellHeightCm = itemH
+                            )
+                        )
+                        currentPagePlacements = mutableListOf()
+                    }
+                    curX = startX
+                    curY = startY
+                    rowMaxH = 0f
+                    colIndex = 0
+                    rowIndex = 0
+                }
+
+                currentPagePlacements.add(
+                    UnitPlacement(
+                        colIndex = colIndex,
+                        rowIndex = rowIndex,
+                        xCm = curX,
+                        yCm = curY,
+                        isRotated = false,
+                        widthCm = itemW,
+                        heightCm = itemH
+                    )
+                )
+
+                curX += itemW + settings.spacingCm
+                if (itemH > rowMaxH) {
+                    rowMaxH = itemH
+                }
+                colIndex++
+            }
+        }
+
+        if (currentPagePlacements.isNotEmpty()) {
+            pages.add(
+                PageLayout(
+                    pageIndex = currentPageIndex,
+                    placements = currentPagePlacements,
+                    isRotated = false,
+                    cols = maxOf(1, colIndex),
+                    rows = maxOf(1, rowIndex + 1),
+                    cellWidthCm = batchItems.firstOrNull()?.widthCm ?: 3.5f,
+                    cellHeightCm = batchItems.firstOrNull()?.heightCm ?: 4.5f
                 )
             )
         }

@@ -9,6 +9,9 @@ interface ProjectDao {
     @Query("SELECT * FROM projects ORDER BY createdAt DESC")
     fun getAllProjects(): Flow<List<Project>>
 
+    @Query("SELECT * FROM projects WHERE name LIKE '%' || :query || '%' OR customerName LIKE '%' || :query || '%' OR customerPhone LIKE '%' || :query || '%' ORDER BY createdAt DESC")
+    fun searchProjects(query: String): Flow<List<Project>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertProject(project: Project): Long
 

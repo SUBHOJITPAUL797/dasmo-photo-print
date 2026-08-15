@@ -445,6 +445,83 @@ fun SizeInputScreen(
                             )
                         }
 
+                        if (viewModel.cuttingGuidesEnabled) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Border Color", style = MaterialTheme.typography.bodyMedium)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    val colors = listOf(
+                                        "Black" to 0xFF000000.toInt(),
+                                        "Gray" to 0xFF999999.toInt(),
+                                        "Red" to 0xFFFF0000.toInt(),
+                                        "Blue" to 0xFF0000FF.toInt()
+                                    )
+                                    colors.forEach { (name, colorInt) ->
+                                        androidx.compose.foundation.layout.Box(
+                                            modifier = Modifier
+                                                .padding(horizontal = 4.dp)
+                                                .size(24.dp)
+                                                .background(
+                                                    androidx.compose.ui.graphics.Color(colorInt),
+                                                    androidx.compose.foundation.shape.CircleShape
+                                                )
+                                                .border(
+                                                    if (viewModel.cuttingGuideColor == colorInt) 2.dp else 1.dp,
+                                                    if (viewModel.cuttingGuideColor == colorInt) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Gray,
+                                                    androidx.compose.foundation.shape.CircleShape
+                                                )
+                                                .clickable {
+                                                    viewModel.cuttingGuideColor = colorInt
+                                                    viewModel.pushHistoryState()
+                                                }
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Border Style", style = MaterialTheme.typography.bodyMedium)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    androidx.compose.material3.OutlinedButton(
+                                        onClick = { viewModel.cuttingGuideStyle = "dashed"; viewModel.pushHistoryState() },
+                                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(containerColor = if (viewModel.cuttingGuideStyle == "dashed") MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent)
+                                    ) { Text("Dashed") }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    androidx.compose.material3.OutlinedButton(
+                                        onClick = { viewModel.cuttingGuideStyle = "solid"; viewModel.pushHistoryState() },
+                                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(containerColor = if (viewModel.cuttingGuideStyle == "solid") MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent)
+                                    ) { Text("Solid") }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Border Thickness", style = MaterialTheme.typography.bodyMedium)
+                                Spacer(modifier = Modifier.width(16.dp))
+                                androidx.compose.material3.Slider(
+                                    value = viewModel.cuttingGuideThicknessPt,
+                                    onValueChange = { viewModel.cuttingGuideThicknessPt = it },
+                                    onValueChangeFinished = { viewModel.pushHistoryState() },
+                                    valueRange = 0.5f..5.0f,
+                                    steps = 8,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+
                         // Auto rotation density optimizer Toggle
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -513,6 +590,7 @@ fun DimensionPreview(
                     ProjectMode.JOINT -> "JOINT PORTRAIT PREVIEW"
                     ProjectMode.SINGLE -> "PASSPORT & VISA PHOTO PREVIEW"
                     ProjectMode.MULTI_PERSON -> "MULTI-PERSON PRINT PREVIEW"
+                    ProjectMode.BATCH_PAPER_SAVER -> "MIXED MULTI-PHOTO BATCH PREVIEW"
                 },
                 style = MaterialTheme.typography.labelLarge.copy(
                     fontWeight = FontWeight.Bold,
@@ -583,6 +661,7 @@ fun DimensionPreview(
                             ProjectMode.JOINT -> DummyJointPhotoContent()
                             ProjectMode.SINGLE -> DummyPassportPhotoContent()
                             ProjectMode.MULTI_PERSON -> DummyPassportPhotoContent()
+                            ProjectMode.BATCH_PAPER_SAVER -> DummyPassportPhotoContent()
                         }
                     }
                 } else {
@@ -744,6 +823,7 @@ fun A4SheetPreviewCanvas(
                                 ProjectMode.ID_CARD -> Color(0xFFE3F2FD) // Light blue representation
                                 ProjectMode.SINGLE -> Color(0xFFFFF3E0) // Light orange representation
                                 ProjectMode.MULTI_PERSON -> if (isPersonA) Color(0xFFFFF3E0) else Color(0xFFE8F5E9)
+                                ProjectMode.BATCH_PAPER_SAVER -> Color(0xFFF3E5F5) // Light purple batch representation
                             },
                             topLeft = Offset(x, y),
                             size = Size(photoWPx, photoHPx)
@@ -850,6 +930,16 @@ fun A4SheetPreviewCanvas(
                                         strokeWidth = 1.5f
                                     )
                                 }
+                            }
+                            ProjectMode.BATCH_PAPER_SAVER -> {
+                                val headRadius = photoWPx * 0.15f
+                                val headX = x + photoWPx * 0.5f
+                                val headY = y + photoHPx * 0.35f
+                                drawCircle(
+                                    color = Color(0xFF7B1FA2).copy(alpha = 0.5f),
+                                    radius = headRadius,
+                                    center = Offset(headX, headY)
+                                )
                             }
                         }
 

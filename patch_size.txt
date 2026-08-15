@@ -1,0 +1,46 @@
+@@ -445,6 +445,49 @@
+                             )
+                         }
+ 
++                        if (viewModel.cuttingGuidesEnabled) {
++                            Spacer(modifier = Modifier.height(8.dp))
++                            Row(
++                                modifier = Modifier.fillMaxWidth(),
++                                verticalAlignment = Alignment.CenterVertically,
++                                horizontalArrangement = Arrangement.SpaceBetween
++                            ) {
++                                Text("Style", style = MaterialTheme.typography.bodyMedium)
++                                Row(verticalAlignment = Alignment.CenterVertically) {
++                                    OutlinedButton(
++                                        onClick = { viewModel.cuttingGuideStyle = "dashed"; viewModel.pushHistoryState() },
++                                        colors = ButtonDefaults.outlinedButtonColors(containerColor = if (viewModel.cuttingGuideStyle == "dashed") MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent)
++                                    ) { Text("Dashed") }
++                                    Spacer(modifier = Modifier.width(8.dp))
++                                    OutlinedButton(
++                                        onClick = { viewModel.cuttingGuideStyle = "solid"; viewModel.pushHistoryState() },
++                                        colors = ButtonDefaults.outlinedButtonColors(containerColor = if (viewModel.cuttingGuideStyle == "solid") MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent)
++                                    ) { Text("Solid") }
++                                }
++                            }
++
++                            Spacer(modifier = Modifier.height(8.dp))
++                            Row(
++                                modifier = Modifier.fillMaxWidth(),
++                                verticalAlignment = Alignment.CenterVertically,
++                                horizontalArrangement = Arrangement.SpaceBetween
++                            ) {
++                                Text("Thickness: ${String.format("%.1f pt", viewModel.cuttingGuideThicknessPt)}", style = MaterialTheme.typography.bodyMedium)
++                                Slider(
++                                    value = viewModel.cuttingGuideThicknessPt,
++                                    onValueChange = { viewModel.cuttingGuideThicknessPt = it },
++                                    onValueChangeFinished = { viewModel.pushHistoryState() },
++                                    valueRange = 0.5f..5.0f,
++                                    steps = 8,
++                                    modifier = Modifier.weight(1f).padding(start = 16.dp)
++                                )
++                            }
++                        }
++
+                         // Auto rotation density optimizer Toggle
+                         Row(
+                             modifier = Modifier.fillMaxWidth(),

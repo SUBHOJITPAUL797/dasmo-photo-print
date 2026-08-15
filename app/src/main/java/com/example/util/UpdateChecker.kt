@@ -66,7 +66,11 @@ object UpdateChecker {
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    Log.e(TAG, "Failed to fetch update info: ${response.code}")
+                    if (response.code != 404) {
+                        Log.e(TAG, "Failed to fetch update info: ${response.code}")
+                    } else {
+                        Log.w(TAG, "No release found yet (404)")
+                    }
                     return@withContext UpdateInfo(false, currentVersion, currentVersion, "", "", "")
                 }
 

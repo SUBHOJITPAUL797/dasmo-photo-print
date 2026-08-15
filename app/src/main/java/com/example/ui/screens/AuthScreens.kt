@@ -1,5 +1,11 @@
 package com.example.ui.screens
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -30,7 +36,25 @@ fun LoginScreen(
     onLoginSuccess: (String, String) -> Unit
 ) {
     val context = LocalContext.current
-    var email by remember { mutableStateOf("") }
+    var isSigningIn by remember { mutableStateOf(false) }
+    
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        isSigningIn = false
+        if (result.resultCode == Activity.RESULT_OK) {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+            try {
+                val account = task.getResult(ApiException::class.java)
+                val email = account?.email
+                if (!email.isNullOrBlank()) {
+                    authViewModel.login(context, email, null) { token -> onLoginSuccess(email, token) }
+                }
+            } catch (e: ApiException) {
+                e.printStackTrace()
+            }
+        }
+    }
     
     Box(
         modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
@@ -57,26 +81,41 @@ fun LoginScreen(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = "Please enter your authorized email ID. This account will be securely bound to this device.",
+                    text = "Please continue with your Google account. Your account will be securely bound to this device.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { email = it },
-                    label = { Text("Email ID") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
                 Button(
                     onClick = { 
-                        authViewModel.login(context, email, null) { token -> onLoginSuccess(email, token) }
-                        
+                        isSigningIn = true
+                        val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                            .requestEmail()
+                            .build()
+                        val mGoogleSignInClient = GoogleSignIn.getClient(context, gso)
+                        launcher.launch(mGoogleSignInClient.signInIntent)
                     },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
-                    enabled = email.isNotBlank()
+                    enabled = !isSigningIn
                 ) {
-                    Text("Login")
+                    if (isSigningIn) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.AccountCircle,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Continue with Google")
+                    }
                 }
             }
         }
@@ -373,6 +412,11 @@ fun AdminDashboardScreen(
                             onResetDevice = {
                                 pendingAction = Triple(user, "Are you sure you want to UNBIND the device for ${user.email}? This will allow them to login from a new device.", {
                                     authViewModel.revokeDevice(user.email)
+                                })
+                            },
+                            onDeleteUser = {
+                                pendingAction = Triple(user, "Are you sure you want to PERMANENTLY DELETE the user ${user.email}? This action cannot be undone.", {
+                                    authViewModel.deleteUser(user.email)
                                 })
                             },
                             onUpdateExpiry = {
@@ -741,6 +785,7 @@ fun EnhancedUserAdminCard(
     onStatusChange: (String) -> Unit,
     onRoleChange: (String) -> Unit,
     onResetDevice: () -> Unit,
+    onDeleteUser: () -> Unit,
     onUpdateExpiry: () -> Unit
 ) {
     val isSelf = user.email.trim().lowercase() == currentUserEmail.trim().lowercase()
@@ -968,6 +1013,18 @@ fun EnhancedUserAdminCard(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Unbind & Reset Device Bind", fontWeight = FontWeight.SemiBold)
                     }
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = onDeleteUser,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Delete User Account", fontWeight = FontWeight.SemiBold)
                 }
             }
         }

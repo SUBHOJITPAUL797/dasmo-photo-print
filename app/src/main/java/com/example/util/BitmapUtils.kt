@@ -410,4 +410,198 @@ object BitmapUtils {
         canvas.drawBitmap(src, 0f, 0f, paint)
         return out
     }
+
+    /**
+     * Renders formal attire vector overlay (Suit/Tie/Shirt/Blazer) at the lower neck & chest area
+     * of passport photos to convert casual photos to official attire.
+     */
+    fun drawFormalAttireOverlay(src: Bitmap, attireType: String): Bitmap {
+        if (attireType.lowercase() == "none") return src
+
+        val width = src.width
+        val height = src.height
+        val out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+
+        // Draw source photo first
+        canvas.drawBitmap(src, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
+        val topY = height * 0.62f // starts at lower neck/shoulders
+        val bottomY = height.toFloat()
+        val centerX = width / 2f
+        val shoulderWidth = width * 0.85f
+        val leftShoulder = centerX - shoulderWidth / 2f
+        val rightShoulder = centerX + shoulderWidth / 2f
+
+        when (attireType.lowercase()) {
+            "navy_suit", "suit_navy" -> {
+                // Navy jacket
+                paint.color = 0xFF1A237E.toInt() // Deep Navy Blue
+                val jacketPath = Path().apply {
+                    moveTo(leftShoulder, bottomY)
+                    lineTo(centerX - width * 0.22f, topY)
+                    lineTo(centerX + width * 0.22f, topY)
+                    lineTo(rightShoulder, bottomY)
+                    close()
+                }
+                canvas.drawPath(jacketPath, paint)
+
+                // White shirt collar V-neck
+                paint.color = Color.WHITE
+                val shirtPath = Path().apply {
+                    moveTo(centerX - width * 0.12f, topY)
+                    lineTo(centerX, topY + height * 0.22f)
+                    lineTo(centerX + width * 0.12f, topY)
+                    close()
+                }
+                canvas.drawPath(shirtPath, paint)
+
+                // Red/Maroon Tie
+                paint.color = 0xFFB71C1C.toInt()
+                val tiePath = Path().apply {
+                    moveTo(centerX - width * 0.035f, topY + height * 0.04f)
+                    lineTo(centerX + width * 0.035f, topY + height * 0.04f)
+                    lineTo(centerX + width * 0.045f, topY + height * 0.28f)
+                    lineTo(centerX, topY + height * 0.33f)
+                    lineTo(centerX - width * 0.045f, topY + height * 0.28f)
+                    close()
+                }
+                canvas.drawPath(tiePath, paint)
+            }
+            "black_suit", "suit_black" -> {
+                // Dark Charcoal / Black Jacket
+                paint.color = 0xFF212121.toInt()
+                val jacketPath = Path().apply {
+                    moveTo(leftShoulder, bottomY)
+                    lineTo(centerX - width * 0.22f, topY)
+                    lineTo(centerX + width * 0.22f, topY)
+                    lineTo(rightShoulder, bottomY)
+                    close()
+                }
+                canvas.drawPath(jacketPath, paint)
+
+                // White Inner Shirt
+                paint.color = Color.WHITE
+                val shirtPath = Path().apply {
+                    moveTo(centerX - width * 0.12f, topY)
+                    lineTo(centerX, topY + height * 0.22f)
+                    lineTo(centerX + width * 0.12f, topY)
+                    close()
+                }
+                canvas.drawPath(shirtPath, paint)
+
+                // Black Tie
+                paint.color = 0xFF000000.toInt()
+                val tiePath = Path().apply {
+                    moveTo(centerX - width * 0.03f, topY + height * 0.04f)
+                    lineTo(centerX + width * 0.03f, topY + height * 0.04f)
+                    lineTo(centerX + width * 0.04f, topY + height * 0.28f)
+                    lineTo(centerX, topY + height * 0.33f)
+                    lineTo(centerX - width * 0.04f, topY + height * 0.28f)
+                    close()
+                }
+                canvas.drawPath(tiePath, paint)
+            }
+            "white_shirt", "shirt_white" -> {
+                // White Formal Collared Shirt
+                paint.color = Color.WHITE
+                val shirtPath = Path().apply {
+                    moveTo(leftShoulder, bottomY)
+                    lineTo(centerX - width * 0.25f, topY)
+                    lineTo(centerX + width * 0.25f, topY)
+                    lineTo(rightShoulder, bottomY)
+                    close()
+                }
+                canvas.drawPath(shirtPath, paint)
+
+                // Collar outline and buttons line
+                val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = 0xFFCCCCCC.toInt()
+                    style = Paint.Style.STROKE
+                    strokeWidth = width * 0.01f
+                }
+                canvas.drawLine(centerX, topY + height * 0.05f, centerX, bottomY, linePaint)
+            }
+            "women_blazer", "blazer_women" -> {
+                // Black/Dark Grey Women's Formal Blazer
+                paint.color = 0xFF263238.toInt()
+                val blazerPath = Path().apply {
+                    moveTo(leftShoulder, bottomY)
+                    lineTo(centerX - width * 0.20f, topY)
+                    lineTo(centerX + width * 0.20f, topY)
+                    lineTo(rightShoulder, bottomY)
+                    close()
+                }
+                canvas.drawPath(blazerPath, paint)
+
+                // Light Cream / White Inner Top
+                paint.color = 0xFFFAFAFA.toInt()
+                val topPath = Path().apply {
+                    moveTo(centerX - width * 0.14f, topY)
+                    lineTo(centerX, topY + height * 0.24f)
+                    lineTo(centerX + width * 0.14f, topY)
+                    close()
+                }
+                canvas.drawPath(topPath, paint)
+            }
+        }
+
+        return out
+    }
+
+    fun applyAutoLightingAndRetouching(src: Bitmap): Bitmap {
+        val cm = android.graphics.ColorMatrix()
+        // Boost contrast and brightness for passport
+        cm.set(floatArrayOf(
+            1.1f, 0f, 0f, 0f, 10f, // Red
+            0f, 1.1f, 0f, 0f, 10f, // Green
+            0f, 0f, 1.1f, 0f, 10f, // Blue
+            0f, 0f, 0f, 1f, 0f
+        ))
+        val out = Bitmap.createBitmap(src.width, src.height, src.config ?: Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+        val paint = Paint().apply {
+            colorFilter = android.graphics.ColorMatrixColorFilter(cm)
+        }
+        canvas.drawBitmap(src, 0f, 0f, paint)
+        return out
+    }
+
+    fun applyBackdropColor(src: Bitmap, color: Int): Bitmap {
+        val width = src.width
+        val height = src.height
+        val out = src.copy(src.config ?: Bitmap.Config.ARGB_8888, true)
+        val pixels = IntArray(width * height)
+        out.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        val targetR = (color shr 16) and 0xFF
+        val targetG = (color shr 8) and 0xFF
+        val targetB = color and 0xFF
+
+        for (i in pixels.indices) {
+            val p = pixels[i]
+            val a = (p shr 24) and 0xFF
+            if (a == 0) {
+                // Transparent pixel, fill with target color
+                pixels[i] = color
+            } else {
+                val r = (p shr 16) and 0xFF
+                val g = (p shr 8) and 0xFF
+                val b = p and 0xFF
+                // Identify light/white background studio pixels (r, g, b > 210)
+                if (r > 210 && g > 210 && b > 210) {
+                    val factor = ((r + g + b) / 3f) / 255f
+                    val newR = (targetR * factor).toInt().coerceIn(0, 255)
+                    val newG = (targetG * factor).toInt().coerceIn(0, 255)
+                    val newB = (targetB * factor).toInt().coerceIn(0, 255)
+                    pixels[i] = (a shl 24) or (newR shl 16) or (newG shl 8) or newB
+                }
+            }
+        }
+        out.setPixels(pixels, 0, width, 0, 0, width, height)
+        return out
+    }
 }

@@ -22,7 +22,7 @@ class PassportPhotoApp : Application() {
             val settings = com.google.firebase.firestore.FirebaseFirestoreSettings.Builder()
                 .setLocalCacheSettings(com.google.firebase.firestore.MemoryCacheSettings.newBuilder().build())
                 .build()
-            val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance(com.google.firebase.FirebaseApp.getInstance(), "default")
+            val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
             firestore.firestoreSettings = settings
             firestore.clearPersistence()
         } catch (e: Exception) {
@@ -31,7 +31,13 @@ class PassportPhotoApp : Application() {
     }
 
     val database by lazy {
+        val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE projects ADD COLUMN cuttingGuideColor INTEGER NOT NULL DEFAULT 0xFF999999")
+            }
+        }
         Room.databaseBuilder(this, AppDatabase::class.java, "passport_photo_print.db")
+            .addMigrations(MIGRATION_3_4)
             .fallbackToDestructiveMigration()
             .build()
     }

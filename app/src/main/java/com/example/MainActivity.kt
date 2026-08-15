@@ -101,179 +101,17 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    when (val state = authViewModel.authState) {
-                        is AuthState.Loading -> {
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator()
-                            }
-                        }
-                        is AuthState.Unauthenticated -> {
-                            LoginScreen(
-                                authViewModel = authViewModel,
-                                onLoginSuccess = { email, sessionToken ->
-                                    sharedPrefs.edit()
-                                        .putString("email", email)
-                                        .putString("session_token", sessionToken)
-                                        .apply()
-                                }
-                            )
-                        }
-                        is AuthState.PendingApproval -> {
-                            PendingApprovalScreen(
-                                onRetry = {
-                                    val savedEmail = sharedPrefs.getString("email", null)
-                                    authViewModel.checkLogin(context, savedEmail)
-                                }
-                            )
-                        }
-                        is AuthState.Error -> {
-                            AuthErrorScreen(
-                                message = state.message,
-                                onRetry = {
-                                    val savedEmail = sharedPrefs.getString("email", null)
-                                    authViewModel.checkLogin(context, savedEmail)
-                                }
-                            )
-                        }
-                        is AuthState.Authenticated -> {
-                            val user = state.user
-                            val currentTime = System.currentTimeMillis()
-                            val isExpired = user.expiryTimestamp > 0L && currentTime > user.expiryTimestamp
-                            viewModel.isExpired = isExpired
-                            viewModel.expiryTimeMs = user.expiryTimestamp
-                            viewModel.isApproved = (user.status == "approved" || user.role == "admin") && !isExpired
-                            
-                            // Real-time listener and FCM subscription for admins to catch new users instantly
-                            if (user.role == "admin") {
-                                LaunchedEffect(Unit) {
-                                    authViewModel.startListeningUsers(context)
-                                    try {
-                                        com.google.firebase.messaging.FirebaseMessaging.getInstance()
-                                            .subscribeToTopic("admin_alerts")
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                    }
-                                }
-                            }
+                    // Authentication completely removed: grant full instant access to everyone
+                    viewModel.isExpired = false
+                    viewModel.isApproved = true
 
-                            var dismissedEmails by remember { mutableStateOf(setOf<String>()) }
-                            val pendingUsers = remember(authViewModel.allUsers, dismissedEmails) {
-                                authViewModel.allUsers.filter { it.status == "pending" && it.email !in dismissedEmails }
-                            }
-
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                if (authViewModel.isOfflineBlocked) {
-                                    OfflineBlockingScreen()
-                                } else if (showAdminDashboard && state.user.role == "admin") {
-                                    AdminDashboardScreen(
-                                        authViewModel = authViewModel,
-                                        onBack = { showAdminDashboard = false }
-                                    )
-                                } else {
-                                    MainContent(
-                                        viewModel = viewModel, 
-                                        isAdmin = state.user.role == "admin",
-                                        onAdminClicked = { showAdminDashboard = true },
-                                        onLogoutClicked = {
-                                            sharedPrefs.edit().remove("email").apply()
-                                            authViewModel.logout()
-                                        }
-                                    )
-                                }
-
-                                // In-App Notification Overlay Alert Banner for Admin
-                                if (user.role == "admin" && pendingUsers.isNotEmpty() && !showAdminDashboard) {
-                                    val topPending = pendingUsers.first()
-                                    AnimatedVisibility(
-                                        visible = true,
-                                        enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
-                                        exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
-                                        modifier = Modifier
-                                            .align(Alignment.TopCenter)
-                                            .padding(top = 48.dp, start = 16.dp, end = 16.dp)
-                                    ) {
-                                        Card(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            colors = CardDefaults.cardColors(
-                                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                                            ),
-                                            shape = RoundedCornerShape(16.dp),
-                                            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-                                            border = androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
-                                        ) {
-                                            Column(modifier = Modifier.padding(16.dp)) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Notifications,
-                                                        contentDescription = "Notification",
-                                                        tint = MaterialTheme.colorScheme.primary,
-                                                        modifier = Modifier.size(24.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text(
-                                                        text = "New Access Request",
-                                                        style = MaterialTheme.typography.titleSmall,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = MaterialTheme.colorScheme.primary,
-                                                        modifier = Modifier.weight(1f)
-                                                    )
-                                                    IconButton(
-                                                        onClick = { dismissedEmails = dismissedEmails + topPending.email },
-                                                        modifier = Modifier.size(24.dp)
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Close,
-                                                            contentDescription = "Dismiss",
-                                                            modifier = Modifier.size(16.dp)
-                                                        )
-                                                    }
-                                                }
-                                                
-                                                Spacer(modifier = Modifier.height(4.dp))
-                                                Text(
-                                                    text = "User with email '${topPending.email}' has registered and is waiting for your access approval.",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    fontWeight = FontWeight.Medium
-                                                )
-                                                
-                                                Spacer(modifier = Modifier.height(12.dp))
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.End,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    TextButton(
-                                                        onClick = { showAdminDashboard = true }
-                                                    ) {
-                                                        Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                        Spacer(modifier = Modifier.width(4.dp))
-                                                        Text("Manage Users", fontWeight = FontWeight.Bold)
-                                                    }
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Button(
-                                                        onClick = {
-                                                            authViewModel.updateUserStatus(topPending.email, "approved")
-                                                        },
-                                                        colors = ButtonDefaults.buttonColors(
-                                                            containerColor = MaterialTheme.colorScheme.primary
-                                                        ),
-                                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                                    ) {
-                                                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                                                        Spacer(modifier = Modifier.width(4.dp))
-                                                        Text("Approve Now", fontWeight = FontWeight.Black)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        MainContent(
+                            viewModel = viewModel, 
+                            isAdmin = true,
+                            onAdminClicked = { },
+                            onLogoutClicked = { }
+                        )
                     }
                 }
 
@@ -461,6 +299,8 @@ fun MainContent(
                     onBackClicked = {
                         if (viewModel.mode == ProjectMode.JOINT) {
                             viewModel.currentStep = 5
+                        } else if (viewModel.mode == ProjectMode.MULTI_PERSON || viewModel.mode == ProjectMode.ID_CARD) {
+                            viewModel.currentStep = 4
                         } else {
                             viewModel.currentStep = 3
                         }

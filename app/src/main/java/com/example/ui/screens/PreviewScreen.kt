@@ -418,6 +418,9 @@ fun PreviewScreen(
                         unitBitmap = unitBmp,
                         marginCm = viewModel.marginCm.toFloatOrNull() ?: 0.5f,
                         cuttingGuidesEnabled = viewModel.cuttingGuidesEnabled,
+                        cuttingGuideThicknessPt = viewModel.cuttingGuideThicknessPt,
+                        cuttingGuideStyle = viewModel.cuttingGuideStyle,
+                        cuttingGuideColor = viewModel.cuttingGuideColor,
                         pageWidthCm = pWidth,
                         pageHeightCm = pHeight,
                         mode = viewModel.mode,
@@ -445,6 +448,9 @@ fun A4SimulatedSheet(
     unitBitmap: Bitmap?,
     marginCm: Float,
     cuttingGuidesEnabled: Boolean,
+    cuttingGuideThicknessPt: Float,
+    cuttingGuideStyle: String,
+    cuttingGuideColor: Int = 0xFF000000.toInt(),
     pageWidthCm: Float,
     pageHeightCm: Float,
     mode: ProjectMode = ProjectMode.SINGLE,
@@ -526,7 +532,6 @@ fun A4SimulatedSheet(
                     val x = placement.xCm * pXcm
                     val y = placement.yCm * pXcm
 
-                    val cellW = if (placement.widthCm > 0f) placement.isRotated else pageLayout.isRotated // fallbacks
                     val cellWVal = if (placement.widthCm > 0f) placement.widthCm else pageLayout.cellWidthCm
                     val cellHVal = if (placement.heightCm > 0f) placement.heightCm else pageLayout.cellHeightCm
 
@@ -536,12 +541,12 @@ fun A4SimulatedSheet(
                     // Draw cutting guides if enabled
                     if (cuttingGuidesEnabled) {
                         drawRect(
-                            color = Color(0xFF999999),
+                            color = Color(cuttingGuideColor),
                             topLeft = Offset(x, y),
                             size = Size(w, h),
                             style = Stroke(
-                                width = 1.dp.toPx(),
-                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
+                                width = (cuttingGuideThicknessPt * 0.352778f * pXcm).coerceAtLeast(1f),
+                                pathEffect = if (cuttingGuideStyle == "dashed") PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f) else null
                             )
                         )
                     }

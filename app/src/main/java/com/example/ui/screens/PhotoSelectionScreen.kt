@@ -17,6 +17,9 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Checkroom
+import androidx.compose.material.icons.filled.FormatColorFill
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -280,7 +283,79 @@ fun PhotoSelectionScreen(
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(24.dp))
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // STUDIO RETOUCHING & BACKDROP TOOLS
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Formal Suit Overlay
+                                var showSuitMenu by remember { mutableStateOf(false) }
+                                Box {
+                                    IconButton(onClick = { showSuitMenu = true }) {
+                                        Icon(imageVector = Icons.Default.Checkroom, contentDescription = "Formal Suit")
+                                    }
+                                    DropdownMenu(
+                                        expanded = showSuitMenu,
+                                        onDismissRequest = { showSuitMenu = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Navy Suit") },
+                                            onClick = { viewModel.applyFormalAttire(isPhotoA, "navy_suit"); showSuitMenu = false }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Black Suit") },
+                                            onClick = { viewModel.applyFormalAttire(isPhotoA, "black_suit"); showSuitMenu = false }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("White Shirt") },
+                                            onClick = { viewModel.applyFormalAttire(isPhotoA, "white_shirt"); showSuitMenu = false }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Women's Blazer") },
+                                            onClick = { viewModel.applyFormalAttire(isPhotoA, "women_blazer"); showSuitMenu = false }
+                                        )
+                                    }
+                                }
+
+                                // Studio Backdrop Color
+                                var showBgMenu by remember { mutableStateOf(false) }
+                                Box {
+                                    IconButton(onClick = { showBgMenu = true }) {
+                                        Icon(imageVector = Icons.Default.FormatColorFill, contentDescription = "Backdrop Color")
+                                    }
+                                    DropdownMenu(
+                                        expanded = showBgMenu,
+                                        onDismissRequest = { showBgMenu = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Light Blue") },
+                                            onClick = { viewModel.applyBackdropColor(isPhotoA, android.graphics.Color.parseColor("#E1F5FE")); showBgMenu = false }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Pure White") },
+                                            onClick = { viewModel.applyBackdropColor(isPhotoA, android.graphics.Color.WHITE); showBgMenu = false }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Light Grey") },
+                                            onClick = { viewModel.applyBackdropColor(isPhotoA, android.graphics.Color.parseColor("#F5F5F5")); showBgMenu = false }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Red") },
+                                            onClick = { viewModel.applyBackdropColor(isPhotoA, android.graphics.Color.parseColor("#FFCDD2")); showBgMenu = false }
+                                        )
+                                    }
+                                }
+
+                                // Auto Retouch
+                                IconButton(onClick = { viewModel.applyAutoRetouch(isPhotoA) }) {
+                                    Icon(imageVector = Icons.Default.AutoFixHigh, contentDescription = "Auto Retouch")
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
 
                             Text(
                                 text = "Current Portrait Crop Ready",
@@ -308,7 +383,7 @@ fun PhotoSelectionScreen(
                         Button(
                             onClick = {
                                 if (isPhotoA) {
-                                    if (viewModel.mode == ProjectMode.SINGLE) {
+                                    if (viewModel.mode == ProjectMode.SINGLE || viewModel.mode == ProjectMode.BATCH_PAPER_SAVER) {
                                         viewModel.finalUnitBitmap = existingCroppedBitmap
                                         val success = viewModel.computeCurrentLayout()
                                         if (success) {

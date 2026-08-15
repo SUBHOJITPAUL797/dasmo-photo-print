@@ -1,0 +1,29 @@
+@@ -418,6 +418,8 @@
+                         unitBitmap = unitBmp,
+                         marginCm = viewModel.marginCm.toFloatOrNull() ?: 0.5f,
+                         cuttingGuidesEnabled = viewModel.cuttingGuidesEnabled,
++                        cuttingGuideThicknessPt = viewModel.cuttingGuideThicknessPt,
++                        cuttingGuideStyle = viewModel.cuttingGuideStyle,
+                         pageWidthCm = pWidth,
+                         pageHeightCm = pHeight,
+                         mode = viewModel.mode,
+@@ -445,6 +447,8 @@
+     unitBitmap: Bitmap?,
+     marginCm: Float,
+     cuttingGuidesEnabled: Boolean,
++    cuttingGuideThicknessPt: Float,
++    cuttingGuideStyle: String,
+     pageWidthCm: Float,
+     pageHeightCm: Float,
+     mode: ProjectMode = ProjectMode.SINGLE,
+@@ -539,8 +543,10 @@
+                             topLeft = Offset(x, y),
+                             size = Size(w, h),
+                             style = Stroke(
+-                                width = 1.dp.toPx(),
+-                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
++                                width = (cuttingGuideThicknessPt * 0.352778f * pXcm).coerceAtLeast(1f), // approximate pt to px
++                                pathEffect = if (cuttingGuideStyle == "dashed") PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f) else null
+                             )
+                         )
+                     }
