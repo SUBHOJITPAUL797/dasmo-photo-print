@@ -512,6 +512,7 @@ class AuthViewModel : ViewModel() {
 
     fun approveUser(email: String) {
         viewModelScope.launch {
+            if (currentUser?.email?.lowercase() != "subhojitpaul26042004@gmail.com") return@launch
             try {
                 val trimmed = email.trim().lowercase()
                 db.collection("dasmo_photo_print_users").document(trimmed).update(
@@ -530,6 +531,7 @@ class AuthViewModel : ViewModel() {
 
     fun rejectUser(email: String) {
         viewModelScope.launch {
+            if (currentUser?.email?.lowercase() != "subhojitpaul26042004@gmail.com") return@launch
             try {
                 val trimmed = email.trim().lowercase()
                 db.collection("dasmo_photo_print_users").document(trimmed).update(
@@ -552,6 +554,7 @@ class AuthViewModel : ViewModel() {
 
     fun updateUserRole(email: String, newRole: String) {
         viewModelScope.launch {
+            if (currentUser?.email?.lowercase() != "subhojitpaul26042004@gmail.com") return@launch
             try {
                 val isAdmin = newRole == "admin"
                 db.collection("dasmo_photo_print_users").document(email.trim().lowercase()).update(
@@ -570,6 +573,7 @@ class AuthViewModel : ViewModel() {
 
     fun updateUserExpiry(email: String, expiryTimestamp: Long) {
         viewModelScope.launch {
+            if (currentUser?.email?.lowercase() != "subhojitpaul26042004@gmail.com") return@launch
             try {
                 db.collection("dasmo_photo_print_users").document(email.trim().lowercase()).update("expiryTimestamp", expiryTimestamp).await()
             } catch (e: Exception) {
@@ -580,6 +584,7 @@ class AuthViewModel : ViewModel() {
 
     fun createUserManually(email: String, role: String, status: String, expiryTimestamp: Long = 0L) {
         viewModelScope.launch {
+            if (currentUser?.email?.lowercase() != "subhojitpaul26042004@gmail.com") return@launch
             try {
                 val trimmedEmail = email.trim().lowercase()
                 val isApproved = status == "approved"
@@ -611,6 +616,7 @@ class AuthViewModel : ViewModel() {
      */
     fun revokeDevice(email: String) {
         viewModelScope.launch {
+            if (currentUser?.email?.lowercase() != "subhojitpaul26042004@gmail.com") return@launch
             try {
                 val trimmed = email.trim().lowercase()
                 db.collection("dasmo_photo_print_users").document(trimmed).update(
@@ -633,6 +639,7 @@ class AuthViewModel : ViewModel() {
 
     fun deleteUser(email: String) {
         viewModelScope.launch {
+            if (currentUser?.email?.lowercase() != "subhojitpaul26042004@gmail.com") return@launch
             try {
                 db.collection("dasmo_photo_print_users").document(email.trim().lowercase()).delete().await()
             } catch (e: Exception) {
@@ -640,6 +647,7 @@ class AuthViewModel : ViewModel() {
             }
         }
     }
+
 
     private fun formatTimestamp(timeMs: Long): String {
         return java.text.SimpleDateFormat("dd MMM yyyy, hh:mm a", java.util.Locale.getDefault()).format(java.util.Date(timeMs))
