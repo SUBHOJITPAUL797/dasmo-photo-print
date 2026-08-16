@@ -300,15 +300,10 @@ class AuthViewModel : ViewModel() {
                 } else {
                     currentUser = user
                     if (authState !is AuthState.Authenticated) {
-                        val sessionToken = UUID.randomUUID().toString()
-                        db.collection("dasmo_photo_print_users").document(email).update(
-                            "currentSessionToken", sessionToken,
-                            "lastActiveTimestamp", System.currentTimeMillis()
-                        )
-                        authState = AuthState.Authenticated(user.copy(currentSessionToken = sessionToken))
-                        onSessionCreated?.invoke(sessionToken)
+                        authState = AuthState.Authenticated(user)
                     }
                 }
+
             }
         }
     }
