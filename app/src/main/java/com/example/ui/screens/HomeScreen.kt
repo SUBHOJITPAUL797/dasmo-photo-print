@@ -26,8 +26,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.widget.Toast
 import com.example.domain.model.Project
 import com.example.ui.ProjectViewModel
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -44,6 +46,7 @@ fun HomeScreen(
 ) {
     val recentProjects by viewModel.recentProjects.collectAsState()
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var projectToDelete by remember { mutableStateOf<Project?>(null) }
     var photoToPreview by remember { mutableStateOf<Project?>(null) }
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -641,7 +644,7 @@ fun HomeScreen(
                             .fillMaxWidth()
                             .clickable {
                                 Toast.makeText(context, "Checking GitHub for updates...", Toast.LENGTH_SHORT).show()
-                                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                                scope.launch {
                                     try {
                                         val info = com.example.util.UpdateChecker.checkForUpdates(context)
                                         updateInfo = info
