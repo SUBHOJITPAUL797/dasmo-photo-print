@@ -477,11 +477,6 @@ fun AdminDashboardScreen(
     var showAddUserDialog by remember { mutableStateOf(false) }
     var showExpiryDialogForUser by remember { mutableStateOf<UserAccount?>(null) }
 
-    // In-app update config states
-    var showUpdateConfigDialog by remember { mutableStateOf(false) }
-    var configOwner by remember { mutableStateOf(UpdateChecker.getGithubOwner(context)) }
-    var configRepo by remember { mutableStateOf(UpdateChecker.getGithubRepo(context)) }
-
     // Dialog state for manually adding user
     var manualEmail by remember { mutableStateOf("") }
     var manualRole by remember { mutableStateOf("user") }
@@ -530,9 +525,6 @@ fun AdminDashboardScreen(
                     }
                 },
                 actions = {
-                    IconButton(onClick = { showUpdateConfigDialog = true }) {
-                        Icon(Icons.Default.SystemUpdate, "Update Source Settings")
-                    }
                     IconButton(onClick = { authViewModel.fetchAllUsers() }) {
                         Icon(Icons.Default.Refresh, "Refresh List")
                     }
@@ -906,58 +898,6 @@ fun AdminDashboardScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showExpiryDialogForUser = null }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    // Update Source Configuration Dialog
-    if (showUpdateConfigDialog) {
-        AlertDialog(
-            onDismissRequest = { showUpdateConfigDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("In-App Update Source", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        text = "Specify your GitHub repository details where you publish release APKs.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    OutlinedTextField(
-                        value = configOwner,
-                        onValueChange = { configOwner = it },
-                        label = { Text("GitHub Owner / Username") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = configRepo,
-                        onValueChange = { configRepo = it },
-                        label = { Text("GitHub Repository Name") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        UpdateChecker.saveGithubConfig(context, configOwner, configRepo)
-                        showUpdateConfigDialog = false
-                    }
-                ) {
-                    Text("Save")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showUpdateConfigDialog = false }) {
                     Text("Cancel")
                 }
             }
