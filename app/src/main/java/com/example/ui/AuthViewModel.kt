@@ -16,33 +16,47 @@ import androidx.lifecycle.viewModelScope
 import com.example.domain.model.UserAccount
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import java.util.UUID
+
+sealed class AuthState {
+    object Loading : AuthState()
+    object Unauthenticated : AuthState()
+    data class PendingApproval(val user: UserAccount) : AuthState()
+    data class DeviceMismatch(val registeredDeviceModel: String, val user: UserAccount) : AuthState()
+    data class Authenticated(val user: UserAccount) : AuthState()
+    data class Error(val message: String) : AuthState()
+}
 
 class AuthViewModel : ViewModel() {
     var isOfflineBlocked by mutableStateOf(false)
         private set
-    
+
     private val db = FirebaseFirestore.getInstance()
-    
+
     var authState by mutableStateOf<AuthState>(AuthState.Loading)
         private set
-        
+
     var currentUser by mutableStateOf<UserAccount?>(null)
         private set
-        
+
     var allUsers by mutableStateOf<List<UserAccount>>(emptyList())
         private set
-        
-    private var usersListener: com.google.firebase.firestore.ListenerRegistration? = null
+
+    private var usersListener: ListenerRegistration? = null
+    private var userDocListener: ListenerRegistration? = null
+    private var sessionListener: ListenerRegistration? = null
 
     @SuppressLint("HardwareIds")
-    private fun getDeviceId(context: Context): String {
+    fun getDeviceId(context: Context): String {
         return Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "unknown_device"
     }
 
-    private fun getDeviceModel(): String {
+    fun getDeviceModel(): String {
         return "${Build.MANUFACTURER} ${Build.MODEL}"
     }
 
@@ -54,115 +68,270 @@ class AuthViewModel : ViewModel() {
         login(context, savedEmail, savedSessionToken)
     }
 
-    fun login(context: Context, email: String, existingSessionToken: String? = null, onSessionCreated: ((String) -> Unit)? = null) {
+    fun login(
+        context: Context,
+        email: String,
+        existingSessionToken: String? = null,
+        onSessionCreated: ((String) -> Unit)? = null
+    ) {
         val trimmedEmail = email.trim().lowercase()
-        if (trimmedEmail.isEmpty()) return
-        
+        if (trimmedEmail.isEmpty()) {
+            authState = AuthState.Unauthenticated
+            return
+        }
+
         authState = AuthState.Loading
         val deviceId = getDeviceId(context)
         val deviceModel = getDeviceModel()
-        
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        val isSuperAdmin = trimmedEmail == "subhojitpaul26042004@gmail.com"
+
+        viewModelScope.launch(Dispatchers.IO) {
             try {
-                // Test network connection to firestore endpoint
-                try {
-                    val url = java.net.URL("https://firestore.googleapis.com")
-                    val connection = url.openConnection() as java.net.HttpURLConnection
-                    connection.connectTimeout = 3000
-                    connection.readTimeout = 3000
-                    connection.requestMethod = "GET"
-                    connection.responseCode
-                } catch (e: Exception) {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                        authState = AuthState.Error("Network Error: Cannot reach Google servers. Check your internet connection. Details: ${e.message}")
-                    }
-                    return@launch
-                }
-                
-                val docRef = db.collection("users").document(trimmedEmail)
-                val snapshot = docRef.get(com.google.firebase.firestore.Source.SERVER).await()
-                
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    if (snapshot.exists()) {
-                        val user = snapshot.toObject(UserAccount::class.java)
-                        if (user != null) {
-                            val isAdmin = trimmedEmail == "subhojitpaul26042004@gmail.com"
-                            if (user.deviceId.isNotEmpty() && user.deviceId != deviceId) {
-                                authState = AuthState.Error("Security Alert: Account is already bound to another device (${user.deviceModel}). Access denied from this device.")
-                            } else {
-                                val newSessionToken = UUID.randomUUID().toString()
-                                val updatedUser = user.copy(
-                                    deviceId = deviceId,
-                                    deviceModel = deviceModel,
-                                    currentSessionToken = newSessionToken,
-                                    role = if (isAdmin) "admin" else user.role,
-                                    status = if (isAdmin) "approved" else user.status
-                                )
-                                
-                                when (updatedUser.status) {
-                                    "approved", "pending" -> {
-                                        docRef.set(updatedUser)
-                                        currentUser = updatedUser
-                                        authState = AuthState.Authenticated(updatedUser)
-                                        onSessionCreated?.invoke(newSessionToken)
-                                    }
-                                    "rejected" -> authState = AuthState.Error("Access Revoked by Administrator.")
-                                }
-                            }
+                val docRef = db.collection("dasmo_photo_print_users").document(trimmedEmail)
+                val snapshot = docRef.get().await()
+
+                if (snapshot != null && snapshot.exists()) {
+                    val rawApproved = snapshot.getBoolean("isApproved") ?: snapshot.getBoolean("dasmo_isApproved") ?: false
+                    val rawStatus = snapshot.getString("status") ?: snapshot.getString("dasmo_status") ?: "pending"
+                    val rawRole = snapshot.getString("role") ?: snapshot.getString("dasmo_role") ?: if (isSuperAdmin) "admin" else "user"
+                    val rawDeviceId = snapshot.getString("deviceId") ?: snapshot.getString("dasmo_deviceId") ?: ""
+                    val rawDeviceModel = snapshot.getString("deviceModel") ?: ""
+                    val rawSession = snapshot.getString("currentSessionToken") ?: ""
+                    val rawExpiry = snapshot.getLong("expiryTimestamp") ?: 0L
+                    val rawAdmin = isSuperAdmin || rawRole == "admin" || (snapshot.getBoolean("isAdmin") ?: false) || (snapshot.getBoolean("dasmo_isAdmin") ?: false)
+                    val rawRegTime = snapshot.getLong("registrationTimestamp") ?: System.currentTimeMillis()
+
+                    val isUserApproved = rawApproved || rawStatus == "approved" || rawAdmin
+
+                    var user = UserAccount(
+                        email = trimmedEmail,
+                        deviceId = rawDeviceId,
+                        deviceModel = rawDeviceModel,
+                        isApproved = isUserApproved,
+                        isAdmin = rawAdmin,
+                        role = if (rawAdmin) "admin" else rawRole,
+                        status = if (rawAdmin) "approved" else rawStatus,
+                        currentSessionToken = rawSession,
+                        expiryTimestamp = rawExpiry,
+                        registrationTimestamp = rawRegTime,
+                        lastActiveTimestamp = System.currentTimeMillis(),
+                        appSource = "DASMO Photo Print"
+                    )
+
+                    withContext(Dispatchers.Main) {
+                        if (isSuperAdmin) {
+                            // Admin has instant unrestricted access everywhere
+                            val newSessionToken = UUID.randomUUID().toString()
+                            user = user.copy(
+                                isApproved = true,
+                                isAdmin = true,
+                                role = "admin",
+                                status = "approved",
+                                deviceId = deviceId,
+                                deviceModel = deviceModel,
+                                currentSessionToken = newSessionToken,
+                                lastActiveTimestamp = System.currentTimeMillis()
+                            )
+                            docRef.set(user, SetOptions.merge())
+                            currentUser = user
+                            authState = AuthState.Authenticated(user)
+                            onSessionCreated?.invoke(newSessionToken)
+                            startListeningUsers(context)
                         } else {
-                            authState = AuthState.Error("Invalid user data.")
+                            // Standard User Enforcement
+                            // 1. Device Binding Verification (Anti-sharing)
+                            if (user.deviceId.isNotEmpty() && user.deviceId != deviceId) {
+                                authState = AuthState.DeviceMismatch(
+                                    registeredDeviceModel = user.deviceModel.ifEmpty { "Another Device" },
+                                    user = user
+                                )
+                                startUserDocObserver(trimmedEmail, deviceId, onSessionCreated)
+                                return@withContext
+                            }
+
+                            // 2. Admin Approval Verification
+                            if (!user.isApproved || user.status != "approved") {
+                                // If deviceId is blank, bind current device for registration
+                                if (user.deviceId.isEmpty()) {
+                                    docRef.update(
+                                        mapOf(
+                                            "deviceId" to deviceId,
+                                            "dasmo_deviceId" to deviceId,
+                                            "deviceModel" to deviceModel,
+                                            "lastActiveTimestamp" to System.currentTimeMillis()
+                                        )
+                                    )
+                                    user = user.copy(deviceId = deviceId, deviceModel = deviceModel)
+                                }
+                                authState = AuthState.PendingApproval(user)
+                                startUserDocObserver(trimmedEmail, deviceId, onSessionCreated)
+                                return@withContext
+                            }
+
+                            // 3. Subscription / Access Plan Duration Check
+                            if (user.expiryTimestamp > 0L && System.currentTimeMillis() > user.expiryTimestamp) {
+                                authState = AuthState.Error(
+                                    "Access Plan Expired: Your subscription ended on ${formatTimestamp(user.expiryTimestamp)}. Please contact administrator to renew."
+                                )
+                                return@withContext
+                            }
+
+                            // 4. Approved and Authorized: Grant Access!
+                            val newSessionToken = UUID.randomUUID().toString()
+                            user = user.copy(
+                                deviceId = deviceId,
+                                deviceModel = deviceModel,
+                                currentSessionToken = newSessionToken,
+                                lastActiveTimestamp = System.currentTimeMillis()
+                            )
+                            docRef.update(
+                                mapOf(
+                                    "deviceId" to deviceId,
+                                    "dasmo_deviceId" to deviceId,
+                                    "deviceModel" to deviceModel,
+                                    "currentSessionToken" to newSessionToken,
+                                    "lastActiveTimestamp" to System.currentTimeMillis(),
+                                    "appSource" to "DASMO Photo Print"
+                                )
+                            )
+                            currentUser = user
+                            authState = AuthState.Authenticated(user)
+                            onSessionCreated?.invoke(newSessionToken)
+                            startUserDocObserver(trimmedEmail, deviceId, onSessionCreated)
                         }
-                    } else {
-                        // Create new account
-                        val isAdmin = trimmedEmail == "subhojitpaul26042004@gmail.com"
+                    }
+                } else {
+                    // New user registering for the very first time
+                    withContext(Dispatchers.Main) {
                         val newSessionToken = UUID.randomUUID().toString()
                         val newUser = UserAccount(
                             email = trimmedEmail,
                             deviceId = deviceId,
                             deviceModel = deviceModel,
-                            role = if (isAdmin) "admin" else "user",
-                            status = if (isAdmin) "approved" else "pending",
-                            currentSessionToken = newSessionToken
+                            isApproved = isSuperAdmin,
+                            isAdmin = isSuperAdmin,
+                            role = if (isSuperAdmin) "admin" else "user",
+                            status = if (isSuperAdmin) "approved" else "pending",
+                            currentSessionToken = newSessionToken,
+                            expiryTimestamp = 0L,
+                            registrationTimestamp = System.currentTimeMillis(),
+                            lastActiveTimestamp = System.currentTimeMillis(),
+                            appSource = "DASMO Photo Print"
                         )
                         docRef.set(newUser)
-                        currentUser = newUser
-                        authState = AuthState.Authenticated(newUser)
-                        onSessionCreated?.invoke(newSessionToken)
+
+                        if (isSuperAdmin) {
+                            currentUser = newUser
+                            authState = AuthState.Authenticated(newUser)
+                            onSessionCreated?.invoke(newSessionToken)
+                            startListeningUsers(context)
+                        } else {
+                            authState = AuthState.PendingApproval(newUser)
+                            startUserDocObserver(trimmedEmail, deviceId, onSessionCreated)
+                        }
                     }
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    val msg = e.message ?: ""
-                    val isOffline = msg.contains("offline", ignoreCase = true)
-                    val hint = if (isOffline) {
-                        "\n\n⚠️ NOTE: This error usually means you have not created/enabled the 'Firestore Database' yet in your Firebase Console for the project 'dasmo-scanner-android'. Please open your Firebase Console, click on 'Firestore Database', and click 'Create Database'!"
-                    } else ""
-                    authState = AuthState.Error("Database Error: ${e.message}$hint\n\nMake sure your Firebase project is correctly configured and rules are set.")
+                withContext(Dispatchers.Main) {
+                    val msg = e.localizedMessage ?: e.message ?: "Authentication failed."
+                    authState = AuthState.Error("Database Connection Error: $msg\n\nPlease check your internet connection and Firestore setup.")
                 }
             }
         }
     }
-    
-    private var sessionListener: ListenerRegistration? = null
+
+    /**
+     * Real-time listener for standard user's document.
+     * When the admin approves/revokes/resets in the Admin Panel, the client automatically reacts in real-time!
+     */
+    private fun startUserDocObserver(
+        email: String,
+        currentDeviceId: String,
+        onSessionCreated: ((String) -> Unit)?
+    ) {
+        userDocListener?.remove()
+        userDocListener = db.collection("dasmo_photo_print_users").document(email).addSnapshotListener { snapshot, error ->
+            if (error != null) return@addSnapshotListener
+            if (snapshot != null && snapshot.exists()) {
+                val isSuperAdmin = email == "subhojitpaul26042004@gmail.com"
+                val rawApproved = snapshot.getBoolean("isApproved") ?: snapshot.getBoolean("dasmo_isApproved") ?: false
+                val rawStatus = snapshot.getString("status") ?: snapshot.getString("dasmo_status") ?: "pending"
+                val rawRole = snapshot.getString("role") ?: snapshot.getString("dasmo_role") ?: if (isSuperAdmin) "admin" else "user"
+                val rawDeviceId = snapshot.getString("deviceId") ?: snapshot.getString("dasmo_deviceId") ?: ""
+                val rawDeviceModel = snapshot.getString("deviceModel") ?: ""
+                val rawSession = snapshot.getString("currentSessionToken") ?: ""
+                val rawExpiry = snapshot.getLong("expiryTimestamp") ?: 0L
+                val rawAdmin = isSuperAdmin || rawRole == "admin" || (snapshot.getBoolean("isAdmin") ?: false) || (snapshot.getBoolean("dasmo_isAdmin") ?: false)
+                val rawRegTime = snapshot.getLong("registrationTimestamp") ?: System.currentTimeMillis()
+
+                val isUserApproved = rawApproved || rawStatus == "approved" || rawAdmin
+
+                val user = UserAccount(
+                    email = email,
+                    deviceId = rawDeviceId,
+                    deviceModel = rawDeviceModel,
+                    isApproved = isUserApproved,
+                    isAdmin = rawAdmin,
+                    role = if (rawAdmin) "admin" else rawRole,
+                    status = if (rawAdmin) "approved" else rawStatus,
+                    currentSessionToken = rawSession,
+                    expiryTimestamp = rawExpiry,
+                    registrationTimestamp = rawRegTime,
+                    lastActiveTimestamp = System.currentTimeMillis(),
+                    appSource = "DASMO Photo Print"
+                )
+
+                if (rawAdmin) {
+                    currentUser = user
+                    if (authState !is AuthState.Authenticated) {
+                        authState = AuthState.Authenticated(user)
+                    }
+                    return@addSnapshotListener
+                }
+
+                // Standard user live updates
+                if (user.deviceId.isNotEmpty() && user.deviceId != currentDeviceId) {
+                    authState = AuthState.DeviceMismatch(
+                        registeredDeviceModel = user.deviceModel.ifEmpty { "Another Device" },
+                        user = user
+                    )
+                } else if (!user.isApproved || user.status != "approved") {
+                    authState = AuthState.PendingApproval(user)
+                } else if (user.expiryTimestamp > 0L && System.currentTimeMillis() > user.expiryTimestamp) {
+                    authState = AuthState.Error("Subscription Plan Expired. Contact administrator to renew.")
+                } else {
+                    currentUser = user
+                    if (authState !is AuthState.Authenticated) {
+                        val sessionToken = UUID.randomUUID().toString()
+                        db.collection("dasmo_photo_print_users").document(email).update(
+                            "currentSessionToken", sessionToken,
+                            "lastActiveTimestamp", System.currentTimeMillis()
+                        )
+                        authState = AuthState.Authenticated(user.copy(currentSessionToken = sessionToken))
+                        onSessionCreated?.invoke(sessionToken)
+                    }
+                }
+            }
+        }
+    }
 
     fun startSessionObserver(email: String, currentToken: String, onSessionInvalidated: () -> Unit) {
         sessionListener?.remove()
         if (currentToken.isBlank() || email.isBlank()) return
-        
-        sessionListener = db.collection("users").document(email).addSnapshotListener { snapshot, error ->
+
+        sessionListener = db.collection("dasmo_photo_print_users").document(email).addSnapshotListener { snapshot, error ->
             if (error != null) return@addSnapshotListener
-            
             if (snapshot != null && snapshot.exists()) {
-                val user = snapshot.toObject(UserAccount::class.java)
-                if (user != null) {
-                    if (user.currentSessionToken != currentToken) {
+                val serverSession = snapshot.getString("currentSessionToken")
+                val isApproved = (snapshot.getBoolean("isApproved") ?: false) || snapshot.getString("status") == "approved"
+                val isAdmin = email == "subhojitpaul26042004@gmail.com" || snapshot.getString("role") == "admin"
+
+                if (!isAdmin) {
+                    if (!isApproved) {
                         onSessionInvalidated()
-                    } else if (user.status == "rejected") {
+                    } else if (serverSession != null && serverSession.isNotEmpty() && serverSession != currentToken) {
                         onSessionInvalidated()
-                    } else {
-                        currentUser = user
-                        authState = AuthState.Authenticated(user)
                     }
                 }
             }
@@ -172,6 +341,8 @@ class AuthViewModel : ViewModel() {
     fun stopSessionObserver() {
         sessionListener?.remove()
         sessionListener = null
+        userDocListener?.remove()
+        userDocListener = null
     }
 
     fun monitorNetwork(context: Context) {
@@ -179,7 +350,7 @@ class AuthViewModel : ViewModel() {
         val networkRequest = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .build()
-            
+
         val activeNetwork = connectivityManager.activeNetwork
         val caps = connectivityManager.getNetworkCapabilities(activeNetwork)
         isOfflineBlocked = activeNetwork == null || caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) != true
@@ -193,29 +364,63 @@ class AuthViewModel : ViewModel() {
             }
         })
     }
-    
+
     fun logout() {
+        stopSessionObserver()
         currentUser = null
         authState = AuthState.Unauthenticated
     }
 
-    // Admin Functions
+    // ==========================================
+    // 👑 ADMIN DASHBOARD REAL-TIME FUNCTIONS
+    // ==========================================
+
     fun startListeningUsers(context: Context) {
         usersListener?.remove()
         var isInitialLoad = true
-        usersListener = db.collection("users").addSnapshotListener { snapshot, error ->
+        usersListener = db.collection("dasmo_photo_print_users").addSnapshotListener { snapshot, error ->
             if (error != null) return@addSnapshotListener
             if (snapshot != null) {
-                val newUsers = snapshot.toObjects(UserAccount::class.java)
-                allUsers = newUsers
+                val list = snapshot.documents.mapNotNull { doc ->
+                    val email = doc.getString("email")?.takeIf { it.isNotBlank() } ?: doc.id
+                    val isSuperAdmin = email == "subhojitpaul26042004@gmail.com"
+                    val isApprovedVal = doc.getBoolean("dasmo_isApproved") ?: doc.getBoolean("isApproved") ?: false
+                    val statusVal = doc.getString("dasmo_status") ?: doc.getString("status") ?: "pending"
+                    val roleVal = doc.getString("dasmo_role") ?: doc.getString("role") ?: if (isSuperAdmin) "admin" else "user"
+                    val deviceIdVal = doc.getString("dasmo_deviceId") ?: doc.getString("deviceId") ?: ""
+                    val deviceModelVal = doc.getString("deviceModel") ?: ""
+                    val sessionVal = doc.getString("currentSessionToken") ?: ""
+                    val expiryVal = doc.getLong("expiryTimestamp") ?: 0L
+                    val regVal = doc.getLong("registrationTimestamp") ?: 0L
+                    val lastActiveVal = doc.getLong("lastActiveTimestamp") ?: 0L
+                    val isAdminVal = isSuperAdmin || roleVal == "admin" || (doc.getBoolean("isAdmin") ?: false) || (doc.getBoolean("dasmo_isAdmin") ?: false)
+
+                    UserAccount(
+                        email = email,
+                        deviceId = deviceIdVal,
+                        deviceModel = deviceModelVal,
+                        isApproved = isApprovedVal || statusVal == "approved" || isAdminVal,
+                        isAdmin = isAdminVal,
+                        role = if (isAdminVal) "admin" else roleVal,
+                        status = if (isAdminVal) "approved" else statusVal,
+                        currentSessionToken = sessionVal,
+                        expiryTimestamp = expiryVal,
+                        registrationTimestamp = regVal,
+                        lastActiveTimestamp = lastActiveVal,
+                        appSource = doc.getString("appSource") ?: "DASMO App"
+                    )
+                }
+
+                allUsers = list
 
                 // Trigger local notification for new pending access requests after initial load
                 if (!isInitialLoad) {
                     for (change in snapshot.documentChanges) {
                         if (change.type == com.google.firebase.firestore.DocumentChange.Type.ADDED) {
-                            val user = change.document.toObject(UserAccount::class.java)
-                            if (user.status == "pending") {
-                                triggerLocalNotification(context, user.email)
+                            val email = change.document.id
+                            val status = change.document.getString("status") ?: "pending"
+                            if (status == "pending" && email != "subhojitpaul26042004@gmail.com") {
+                                triggerLocalNotification(context, email)
                             }
                         }
                     }
@@ -229,14 +434,14 @@ class AuthViewModel : ViewModel() {
         try {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
             val channelId = "dasmo_admin_channel"
-            
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val channel = android.app.NotificationChannel(
                     channelId,
                     "DASMO Admin Alerts",
                     android.app.NotificationManager.IMPORTANCE_HIGH
                 ).apply {
-                    description = "Alerts for new registration and access requests"
+                    description = "Alerts for new user access requests"
                 }
                 notificationManager.createNotificationChannel(channel)
             }
@@ -254,12 +459,12 @@ class AuthViewModel : ViewModel() {
             val builder = androidx.core.app.NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle("New Access Request")
-                .setContentText("User '$email' is waiting for access approval.")
+                .setContentText("User '$email' requested access.")
                 .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
 
-            notificationManager.notify(System.currentTimeMillis().toInt(), builder.build())
+            notificationManager.notify(email.hashCode(), builder.build())
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -273,30 +478,95 @@ class AuthViewModel : ViewModel() {
     fun fetchAllUsers() {
         viewModelScope.launch {
             try {
-                val snapshot = db.collection("users").get().await()
-                allUsers = snapshot.toObjects(UserAccount::class.java)
+                val snapshot = db.collection("dasmo_photo_print_users").get().await()
+                allUsers = snapshot.documents.mapNotNull { doc ->
+                    val email = doc.getString("email")?.takeIf { it.isNotBlank() } ?: doc.id
+                    val isSuperAdmin = email == "subhojitpaul26042004@gmail.com"
+                    val isApprovedVal = doc.getBoolean("dasmo_isApproved") ?: doc.getBoolean("isApproved") ?: false
+                    val statusVal = doc.getString("dasmo_status") ?: doc.getString("status") ?: "pending"
+                    val roleVal = doc.getString("dasmo_role") ?: doc.getString("role") ?: if (isSuperAdmin) "admin" else "user"
+                    val deviceIdVal = doc.getString("dasmo_deviceId") ?: doc.getString("deviceId") ?: ""
+                    val deviceModelVal = doc.getString("deviceModel") ?: ""
+                    val sessionVal = doc.getString("currentSessionToken") ?: ""
+                    val expiryVal = doc.getLong("expiryTimestamp") ?: 0L
+                    val regVal = doc.getLong("registrationTimestamp") ?: 0L
+                    val lastActiveVal = doc.getLong("lastActiveTimestamp") ?: 0L
+                    val isAdminVal = isSuperAdmin || roleVal == "admin" || (doc.getBoolean("isAdmin") ?: false)
+
+                    UserAccount(
+                        email = email,
+                        deviceId = deviceIdVal,
+                        deviceModel = deviceModelVal,
+                        isApproved = isApprovedVal || statusVal == "approved" || isAdminVal,
+                        isAdmin = isAdminVal,
+                        role = if (isAdminVal) "admin" else roleVal,
+                        status = if (isAdminVal) "approved" else statusVal,
+                        currentSessionToken = sessionVal,
+                        expiryTimestamp = expiryVal,
+                        registrationTimestamp = regVal,
+                        lastActiveTimestamp = lastActiveVal
+                    )
+                }
             } catch (e: Exception) {
-                // Ignore for now
+                e.printStackTrace()
             }
         }
     }
 
-    fun updateUserStatus(email: String, newStatus: String) {
+    fun approveUser(email: String) {
         viewModelScope.launch {
             try {
-                db.collection("users").document(email).update("status", newStatus).await()
+                val trimmed = email.trim().lowercase()
+                db.collection("dasmo_photo_print_users").document(trimmed).update(
+                    mapOf(
+                        "isApproved" to true,
+                        "dasmo_isApproved" to true,
+                        "status" to "approved",
+                        "dasmo_status" to "approved"
+                    )
+                ).await()
             } catch (e: Exception) {
-                // Ignore for now
+                e.printStackTrace()
             }
         }
+    }
+
+    fun rejectUser(email: String) {
+        viewModelScope.launch {
+            try {
+                val trimmed = email.trim().lowercase()
+                db.collection("dasmo_photo_print_users").document(trimmed).update(
+                    mapOf(
+                        "isApproved" to false,
+                        "dasmo_isApproved" to false,
+                        "status" to "rejected",
+                        "dasmo_status" to "rejected"
+                    )
+                ).await()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun toggleUserApproval(email: String, currentStatus: Boolean) {
+        if (currentStatus) rejectUser(email) else approveUser(email)
     }
 
     fun updateUserRole(email: String, newRole: String) {
         viewModelScope.launch {
             try {
-                db.collection("users").document(email).update("role", newRole).await()
+                val isAdmin = newRole == "admin"
+                db.collection("dasmo_photo_print_users").document(email.trim().lowercase()).update(
+                    mapOf(
+                        "role" to newRole,
+                        "dasmo_role" to newRole,
+                        "isAdmin" to isAdmin,
+                        "dasmo_isAdmin" to isAdmin
+                    )
+                ).await()
             } catch (e: Exception) {
-                // Ignore for now
+                e.printStackTrace()
             }
         }
     }
@@ -304,9 +574,9 @@ class AuthViewModel : ViewModel() {
     fun updateUserExpiry(email: String, expiryTimestamp: Long) {
         viewModelScope.launch {
             try {
-                db.collection("users").document(email).update("expiryTimestamp", expiryTimestamp).await()
+                db.collection("dasmo_photo_print_users").document(email.trim().lowercase()).update("expiryTimestamp", expiryTimestamp).await()
             } catch (e: Exception) {
-                // Ignore for now
+                e.printStackTrace()
             }
         }
     }
@@ -315,30 +585,51 @@ class AuthViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 val trimmedEmail = email.trim().lowercase()
-                val user = UserAccount(
-                    email = trimmedEmail,
-                    role = role,
-                    status = status,
-                    expiryTimestamp = expiryTimestamp
+                val isApproved = status == "approved"
+                val isAdmin = role == "admin"
+                val user = mapOf(
+                    "email" to trimmedEmail,
+                    "role" to role,
+                    "dasmo_role" to role,
+                    "status" to status,
+                    "dasmo_status" to status,
+                    "isApproved" to isApproved,
+                    "dasmo_isApproved" to isApproved,
+                    "isAdmin" to isAdmin,
+                    "dasmo_isAdmin" to isAdmin,
+                    "expiryTimestamp" to expiryTimestamp,
+                    "registrationTimestamp" to System.currentTimeMillis(),
+                    "appSource" to "Admin Pre-approval"
                 )
-                db.collection("users").document(trimmedEmail).set(user).await()
+                db.collection("dasmo_photo_print_users").document(trimmedEmail).set(user, SetOptions.merge()).await()
             } catch (e: Exception) {
-                // Ignore
+                e.printStackTrace()
             }
         }
     }
-    
+
+    /**
+     * Unbinds the registered device from this account.
+     * Use when a user legitimately changes phones.
+     */
     fun revokeDevice(email: String) {
         viewModelScope.launch {
             try {
-                db.collection("users").document(email).update(
-                    "deviceId", "",
-                    "deviceModel", "",
-                    "status", "pending",
-                    "currentSessionToken", ""
+                val trimmed = email.trim().lowercase()
+                db.collection("dasmo_photo_print_users").document(trimmed).update(
+                    mapOf(
+                        "deviceId" to "",
+                        "dasmo_deviceId" to "",
+                        "deviceModel" to "",
+                        "status" to "pending",
+                        "dasmo_status" to "pending",
+                        "isApproved" to false,
+                        "dasmo_isApproved" to false,
+                        "currentSessionToken" to ""
+                    )
                 ).await()
             } catch (e: Exception) {
-                // Ignore
+                e.printStackTrace()
             }
         }
     }
@@ -346,23 +637,20 @@ class AuthViewModel : ViewModel() {
     fun deleteUser(email: String) {
         viewModelScope.launch {
             try {
-                db.collection("users").document(email).delete().await()
+                db.collection("dasmo_photo_print_users").document(email.trim().lowercase()).delete().await()
             } catch (e: Exception) {
-                // Ignore
+                e.printStackTrace()
             }
         }
+    }
+
+    private fun formatTimestamp(timeMs: Long): String {
+        return java.text.SimpleDateFormat("dd MMM yyyy, hh:mm a", java.util.Locale.getDefault()).format(java.util.Date(timeMs))
     }
 
     override fun onCleared() {
         super.onCleared()
         stopListeningUsers()
+        stopSessionObserver()
     }
-}
-
-sealed class AuthState {
-    object Loading : AuthState()
-    object Unauthenticated : AuthState()
-    object PendingApproval : AuthState()
-    data class Authenticated(val user: UserAccount) : AuthState()
-    data class Error(val message: String) : AuthState()
 }

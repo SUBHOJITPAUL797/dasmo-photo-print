@@ -3,16 +3,25 @@ package com.example.util
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.util.Log
+import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import java.util.concurrent.TimeUnit
 
 object UpdateChecker {
     private const val TAG = "UpdateChecker"
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .build()
 
     private const val PREF_GITHUB_OWNER = "update_github_owner"
     private const val PREF_GITHUB_REPO = "update_github_repo"
@@ -37,13 +46,16 @@ object UpdateChecker {
             .apply()
     }
 
-    class UpdateInfo(
+    data class UpdateInfo(
         val hasUpdate: Boolean,
         val latestVersion: String,
         val currentVersion: String,
+        val releaseTitle: String,
         val releaseNotes: String,
         val downloadUrl: String,
-        val browserUrl: String
+        val browserUrl: String,
+        val isCritical: Boolean = false,
+        val apkSizeMb: Double = 0.0
     )
 
     suspend fun checkForUpdates(context: Context): UpdateInfo = withContext(Dispatchers.IO) {
@@ -68,30 +80,31 @@ object UpdateChecker {
                 if (!response.isSuccessful) {
                     if (response.code != 404) {
                         Log.e(TAG, "Failed to fetch update info: ${response.code}")
-                    } else {
-                        Log.w(TAG, "No release found yet (404)")
                     }
-                    return@withContext UpdateInfo(false, currentVersion, currentVersion, "", "", "")
+                    return@withContext UpdateInfo(false, currentVersion, currentVersion, "", "", "", "")
                 }
 
                 val bodyString = response.body?.string() ?: ""
                 if (bodyString.isEmpty()) {
-                    return@withContext UpdateInfo(false, currentVersion, currentVersion, "", "", "")
+                    return@withContext UpdateInfo(false, currentVersion, currentVersion, "", "", "", "")
                 }
 
                 val json = JSONObject(bodyString)
                 val tagName = json.optString("tag_name", "").trim()
+                val releaseTitle = json.optString("name", "New Release $tagName")
                 val browserUrl = json.optString("html_url", "")
-                val body = json.optString("body", "No release notes provided.")
+                val body = json.optString("body", "• Improvements and bug fixes.")
 
                 var downloadUrl = ""
+                var apkSizeBytes = 0L
                 val assets = json.optJSONArray("assets")
                 if (assets != null && assets.length() > 0) {
                     for (i in 0 until assets.length()) {
                         val asset = assets.getJSONObject(i)
                         val assetName = asset.optString("name", "")
-                        if (assetName.endsWith(".apk")) {
+                        if (assetName.endsWith(".apk", ignoreCase = true)) {
                             downloadUrl = asset.optString("browser_download_url", "")
+                            apkSizeBytes = asset.optLong("size", 0L)
                             break
                         }
                     }
@@ -103,23 +116,28 @@ object UpdateChecker {
 
                 val cleanLatest = sanitizeVersion(tagName)
                 val cleanCurrent = sanitizeVersion(currentVersion)
-
                 val hasUpdate = isLatestVersionNewer(cleanCurrent, cleanLatest)
+                val isCritical = body.contains("[CRITICAL]", ignoreCase = true) ||
+                        body.contains("[MANDATORY]", ignoreCase = true) ||
+                        releaseTitle.contains("CRITICAL", ignoreCase = true)
 
-                Log.d(TAG, "Current: $cleanCurrent, Latest: $cleanLatest, Has Update: $hasUpdate")
+                val apkSizeMb = if (apkSizeBytes > 0) apkSizeBytes / (1024.0 * 1024.0) else 0.0
 
                 return@withContext UpdateInfo(
                     hasUpdate = hasUpdate,
                     latestVersion = tagName,
                     currentVersion = currentVersion,
+                    releaseTitle = releaseTitle,
                     releaseNotes = body,
                     downloadUrl = downloadUrl,
-                    browserUrl = browserUrl
+                    browserUrl = browserUrl,
+                    isCritical = isCritical,
+                    apkSizeMb = apkSizeMb
                 )
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error checking for updates", e)
-            return@withContext UpdateInfo(false, currentVersion, currentVersion, "", "", "")
+            return@withContext UpdateInfo(false, currentVersion, currentVersion, "", "", "", "")
         }
     }
 
@@ -129,7 +147,7 @@ object UpdateChecker {
 
     private fun isLatestVersionNewer(current: String, latest: String): Boolean {
         if (current == latest) return false
-        
+
         val currentParts = current.split(".").map { it.toIntOrNull() ?: 0 }
         val latestParts = latest.split(".").map { it.toIntOrNull() ?: 0 }
 
@@ -142,6 +160,97 @@ object UpdateChecker {
         }
 
         return false
+    }
+
+    suspend fun downloadApk(
+        context: Context,
+        downloadUrl: String,
+        onProgress: (progress: Float, downloadedMb: Double, totalMb: Double) -> Unit
+    ): Result<File> = withContext(Dispatchers.IO) {
+        try {
+            val updateDir = File(context.cacheDir, "updates").apply { mkdirs() }
+            val apkFile = File(updateDir, "dasmo_photo_print_update.apk")
+            if (apkFile.exists()) apkFile.delete()
+
+            val request = Request.Builder()
+                .url(downloadUrl)
+                .header("User-Agent", "DASMO-APK-Downloader")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure(Exception("Download failed: HTTP ${response.code}"))
+                }
+
+                val body = response.body ?: return@withContext Result.failure(Exception("Empty response body"))
+                val contentLength = body.contentLength()
+                val totalMb = if (contentLength > 0) contentLength / (1024.0 * 1024.0) else 0.0
+
+                body.byteStream().use { inputStream ->
+                    FileOutputStream(apkFile).use { outputStream ->
+                        val buffer = ByteArray(8 * 1024)
+                        var bytesRead: Int
+                        var totalBytesRead = 0L
+                        var lastReportTime = System.currentTimeMillis()
+
+                        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                            outputStream.write(buffer, 0, bytesRead)
+                            totalBytesRead += bytesRead
+
+                            val now = System.currentTimeMillis()
+                            if (now - lastReportTime > 100 || totalBytesRead == contentLength) {
+                                lastReportTime = now
+                                val progress = if (contentLength > 0) totalBytesRead.toFloat() / contentLength else 0f
+                                val downloadedMb = totalBytesRead / (1024.0 * 1024.0)
+                                withContext(Dispatchers.Main) {
+                                    onProgress(progress, downloadedMb, totalMb)
+                                }
+                            }
+                        }
+                        outputStream.flush()
+                    }
+                }
+
+                return@withContext Result.success(apkFile)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error downloading APK", e)
+            return@withContext Result.failure(e)
+        }
+    }
+
+    fun installApk(context: Context, apkFile: File) {
+        try {
+            if (!apkFile.exists()) {
+                Log.e(TAG, "APK file does not exist: ${apkFile.absolutePath}")
+                return
+            }
+
+            val authority = "${context.packageName}.fileprovider"
+            val uri = FileProvider.getUriForFile(context, authority, apkFile)
+
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+
+            // Check if unknown app sources permission needed on Android 8.0+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (!context.packageManager.canRequestPackageInstalls()) {
+                    val settingsIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                        data = Uri.parse("package:${context.packageName}")
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(settingsIntent)
+                    return
+                }
+            }
+
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to launch installer", e)
+        }
     }
 
     fun openUrl(context: Context, url: String) {

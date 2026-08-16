@@ -101,111 +101,95 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // Authentication completely removed: grant full instant access to everyone
-                    viewModel.isExpired = false
-                    viewModel.isApproved = true
+                    when (val currentAuthState = authViewModel.authState) {
+                        is AuthState.Loading -> {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                                    Text(
+                                        text = "Connecting to Secure Services...",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                        is AuthState.Unauthenticated -> {
+                            LoginScreen(
+                                authViewModel = authViewModel,
+                                onLoginSuccess = { email, token ->
+                                    sharedPrefs.edit()
+                                        .putString("email", email)
+                                        .putString("session_token", token)
+                                        .apply()
+                                }
+                            )
+                        }
+                        is AuthState.PendingApproval -> {
+                            PendingApprovalScreen(
+                                user = currentAuthState.user,
+                                onSignOut = {
+                                    sharedPrefs.edit().clear().apply()
+                                    authViewModel.logout()
+                                }
+                            )
+                        }
+                        is AuthState.DeviceMismatch -> {
+                            DeviceMismatchScreen(
+                                registeredDeviceModel = currentAuthState.registeredDeviceModel,
+                                user = currentAuthState.user,
+                                onSignOut = {
+                                    sharedPrefs.edit().clear().apply()
+                                    authViewModel.logout()
+                                }
+                            )
+                        }
+                        is AuthState.Error -> {
+                            AuthErrorScreen(
+                                message = currentAuthState.message,
+                                onRetry = {
+                                    sharedPrefs.edit().clear().apply()
+                                    authViewModel.logout()
+                                }
+                            )
+                        }
+                        is AuthState.Authenticated -> {
+                            val user = currentAuthState.user
+                            viewModel.isApproved = user.isApproved
+                            viewModel.isExpired = user.expiryTimestamp > 0L && System.currentTimeMillis() > user.expiryTimestamp
 
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        MainContent(
-                            viewModel = viewModel, 
-                            isAdmin = true,
-                            onAdminClicked = { },
-                            onLogoutClicked = { }
-                        )
+                            if (showAdminDashboard && user.isAdmin) {
+                                AdminDashboardScreen(
+                                    authViewModel = authViewModel,
+                                    onBack = { showAdminDashboard = false }
+                                )
+                            } else {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    MainContent(
+                                        viewModel = viewModel,
+                                        isAdmin = user.isAdmin,
+                                        onAdminClicked = { showAdminDashboard = true },
+                                        onLogoutClicked = {
+                                            sharedPrefs.edit().clear().apply()
+                                            authViewModel.logout()
+                                        }
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
 
                 if (showUpdateDialog && updateInfo != null) {
-                    val info = updateInfo!!
-                    AlertDialog(
-                        onDismissRequest = { showUpdateDialog = false },
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Default.SystemUpdate,
-                                contentDescription = "Update Available",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(32.dp)
-                            )
-                        },
-                        title = {
-                            Text(
-                                text = "New Update Available!",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        },
-                        text = {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(
-                                    text = "A new version of DASMO PHOTO PRINT is available on GitHub.",
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Text(
-                                        text = "Current: v${info.currentVersion}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Text(
-                                        text = "Latest: ${info.latestVersion}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                if (info.releaseNotes.isNotBlank()) {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = "Release Notes:",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Card(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(max = 120.dp),
-                                        colors = CardDefaults.cardColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                                        )
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .padding(8.dp)
-                                                .verticalScroll(rememberScrollState())
-                                        ) {
-                                            Text(
-                                                text = info.releaseNotes,
-                                                style = MaterialTheme.typography.bodySmall
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        confirmButton = {
-                            Button(
-                                onClick = {
-                                    UpdateChecker.openUrl(context, info.downloadUrl)
-                                    showUpdateDialog = false
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary
-                                )
-                            ) {
-                                Text("Update Now", fontWeight = FontWeight.Bold)
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(
-                                onClick = { showUpdateDialog = false }
-                            ) {
-                                Text("Later")
-                            }
-                        }
+                    com.example.ui.screens.InAppUpdateDialog(
+                        updateInfo = updateInfo!!,
+                        onDismiss = { showUpdateDialog = false }
                     )
                 }
             }

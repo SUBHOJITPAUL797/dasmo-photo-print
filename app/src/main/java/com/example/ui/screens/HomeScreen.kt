@@ -47,6 +47,8 @@ fun HomeScreen(
     var projectToDelete by remember { mutableStateOf<Project?>(null) }
     var photoToPreview by remember { mutableStateOf<Project?>(null) }
     var showSettingsDialog by remember { mutableStateOf(false) }
+    var updateInfo by remember { mutableStateOf<com.example.util.UpdateChecker.UpdateInfo?>(null) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -59,6 +61,18 @@ fun HomeScreen(
                     )
                 },
                 actions = {
+                    if (isAdmin) {
+                        IconButton(
+                            onClick = onAdminClicked,
+                            modifier = Modifier.testTag("admin_panel_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AdminPanelSettings,
+                                contentDescription = "Admin Panel",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = { showSettingsDialog = true },
                         modifier = Modifier.testTag("app_settings_btn")
@@ -66,7 +80,17 @@ fun HomeScreen(
                         Icon(
                             imageVector = Icons.Default.Settings,
                             contentDescription = "App Settings",
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    IconButton(
+                        onClick = onLogoutClicked,
+                        modifier = Modifier.testTag("logout_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Logout,
+                            contentDescription = "Logout",
+                            tint = MaterialTheme.colorScheme.error
                         )
                     }
                 },
@@ -611,6 +635,56 @@ fun HomeScreen(
                         }
                     }
 
+                    // App Updates Card
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                Toast.makeText(context, "Checking GitHub for updates...", Toast.LENGTH_SHORT).show()
+                                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                                    try {
+                                        val info = com.example.util.UpdateChecker.checkForUpdates(context)
+                                        updateInfo = info
+                                        if (info.hasUpdate) {
+                                            showUpdateDialog = true
+                                        } else {
+                                            Toast.makeText(context, "You are using the latest version (v${info.currentVersion})", Toast.LENGTH_LONG).show()
+                                        }
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Update check failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Check for Updates",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "Fetch latest APK release & changelogs from GitHub",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Icon(
+                                imageVector = Icons.Default.SystemUpdate,
+                                contentDescription = "Update",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
                     // Print Specs Info
                     Card(
                         modifier = Modifier.fillMaxWidth(),
@@ -641,6 +715,13 @@ fun HomeScreen(
                     Text("Close")
                 }
             }
+        )
+    }
+
+    if (showUpdateDialog && updateInfo != null) {
+        InAppUpdateDialog(
+            updateInfo = updateInfo!!,
+            onDismiss = { showUpdateDialog = false }
         )
     }
 }

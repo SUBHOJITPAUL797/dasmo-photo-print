@@ -1,34 +1,49 @@
 package com.example.ui.screens
 
 import android.app.Activity
+import android.content.Context
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
-import com.google.android.gms.common.api.ApiException
-import android.content.Context
+import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import android.widget.Toast
 import com.example.domain.model.UserAccount
 import com.example.ui.AuthViewModel
 import com.example.util.UpdateChecker
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.*
 
 @Composable
 fun LoginScreen(
@@ -37,7 +52,7 @@ fun LoginScreen(
 ) {
     val context = LocalContext.current
     var isSigningIn by remember { mutableStateOf(false) }
-    
+
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -48,49 +63,93 @@ fun LoginScreen(
                 val account = task.getResult(ApiException::class.java)
                 val email = account?.email
                 if (!email.isNullOrBlank()) {
-                    authViewModel.login(context, email, null) { token -> onLoginSuccess(email, token) }
+                    authViewModel.login(context, email, null) { token ->
+                        onLoginSuccess(email, token)
+                    }
                 }
             } catch (e: ApiException) {
                 e.printStackTrace()
+                Toast.makeText(context, "Sign-In Error (${e.statusCode}): ${e.localizedMessage}", Toast.LENGTH_LONG).show()
             }
         }
     }
-    
+
     Box(
-        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center
     ) {
         Card(
-            modifier = Modifier.padding(24.dp).fillMaxWidth(),
-            elevation = CardDefaults.cardElevation(8.dp)
+            modifier = Modifier
+                .padding(24.dp)
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            elevation = CardDefaults.cardElevation(10.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
-                modifier = Modifier.padding(24.dp),
+                modifier = Modifier.padding(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Lock,
-                    contentDescription = "Security",
-                    modifier = Modifier.size(64.dp),
-                    tint = MaterialTheme.colorScheme.primary
-                )
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Shield,
+                        contentDescription = "Shield Security",
+                        modifier = Modifier.size(38.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+
                 Text(
-                    text = "Secure Device Login",
+                    text = "DASMO PHOTO PRINT",
                     style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Black,
+                    textAlign = TextAlign.Center
                 )
+
                 Text(
-                    text = "Please continue with your Google account. Your account will be securely bound to this device.",
+                    text = "Sign in with your Google Account. Your device will be securely registered and bound to your account in Firestore.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    textAlign = TextAlign.Center
                 )
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Admin approval & single-device hardware lock enforced.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
                 Button(
-                    onClick = { 
+                    onClick = {
                         isSigningIn = true
                         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                             .requestEmail()
@@ -98,23 +157,26 @@ fun LoginScreen(
                         val mGoogleSignInClient = GoogleSignIn.getClient(context, gso)
                         launcher.launch(mGoogleSignInClient.signInIntent)
                     },
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = RoundedCornerShape(14.dp),
                     enabled = !isSigningIn
                 ) {
                     if (isSigningIn) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
                             color = MaterialTheme.colorScheme.onPrimary,
-                            strokeWidth = 2.dp
+                            strokeWidth = 2.5.dp
                         )
                     } else {
                         Icon(
                             imageVector = Icons.Default.AccountCircle,
                             contentDescription = null,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(22.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Continue with Google")
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("Continue with Google", fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -124,36 +186,217 @@ fun LoginScreen(
 
 @Composable
 fun PendingApprovalScreen(
-    onRetry: () -> Unit
+    user: UserAccount,
+    onSignOut: () -> Unit
 ) {
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+
     Box(
-        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.padding(32.dp).verticalScroll(rememberScrollState())
+        Card(
+            modifier = Modifier
+                .padding(24.dp)
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            elevation = CardDefaults.cardElevation(8.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
-            Icon(
-                imageVector = Icons.Default.HourglassEmpty,
-                contentDescription = "Pending",
-                modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.secondary
-            )
-            Text(
-                text = "Pending Admin Approval",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Your device and account have been registered. Please wait for the administrator to grant you access.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
-            Button(onClick = onRetry) {
-                Text("Check Status")
+            Column(
+                modifier = Modifier
+                    .padding(28.dp)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.tertiaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.HourglassEmpty,
+                        contentDescription = "Pending Approval",
+                        modifier = Modifier.size(38.dp),
+                        tint = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
+
+                Text(
+                    text = "Awaiting Admin Approval",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    text = "Your account request and device registration have been received in Firestore. Please ask Administrator (subhojitpaul26042004@gmail.com) to approve your access.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+
+                // User details card
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Account: ${user.email}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Device Model: ${user.deviceModel.ifEmpty { "Android Device" }}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Device ID: ${user.deviceId.take(12)}...",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            TextButton(
+                                onClick = {
+                                    clipboardManager.setText(AnnotatedString(user.deviceId))
+                                    Toast.makeText(context, "Device ID copied!", Toast.LENGTH_SHORT).show()
+                                },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                modifier = Modifier.height(26.dp)
+                            ) {
+                                Text("Copy ID", fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Listening for admin approval live...",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                OutlinedButton(
+                    onClick = onSignOut,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Sign Out")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DeviceMismatchScreen(
+    registeredDeviceModel: String,
+    user: UserAccount,
+    onSignOut: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier
+                .padding(24.dp)
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            elevation = CardDefaults.cardElevation(8.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(28.dp)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.errorContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PhonelinkLock,
+                        contentDescription = "Device Locked",
+                        modifier = Modifier.size(38.dp),
+                        tint = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+
+                Text(
+                    text = "Device Not Authorized",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center
+                )
+
+                Text(
+                    text = "This account (${user.email}) is already bound to another physical device:\n\n📱 Registered Device: $registeredDeviceModel\n\nFor security and license protection, one account cannot be shared across multiple devices. Please use your registered phone or ask the administrator to reset your device binding.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Button(
+                    onClick = onSignOut,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Sign Out", fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
@@ -165,13 +408,17 @@ fun AuthErrorScreen(
     onRetry: () -> Unit
 ) {
     Box(
-        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
         contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.padding(32.dp).verticalScroll(rememberScrollState())
+            modifier = Modifier
+                .padding(32.dp)
+                .verticalScroll(rememberScrollState())
         ) {
             Icon(
                 imageVector = Icons.Default.ErrorOutline,
@@ -180,7 +427,7 @@ fun AuthErrorScreen(
                 tint = MaterialTheme.colorScheme.error
             )
             Text(
-                text = "Connection Failed",
+                text = "Authentication Notice",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.error
@@ -189,10 +436,10 @@ fun AuthErrorScreen(
                 text = message,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                textAlign = TextAlign.Center
             )
             Button(onClick = onRetry) {
-                Text("Go Back")
+                Text("Go Back / Retry")
             }
         }
     }
@@ -204,46 +451,48 @@ fun AdminDashboardScreen(
     authViewModel: AuthViewModel,
     onBack: () -> Unit
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     LaunchedEffect(Unit) {
         authViewModel.startListeningUsers(context)
     }
 
     var searchQuery by remember { mutableStateOf("") }
-    var selectedFilter by remember { mutableStateOf("All") } // "All", "Pending", "Approved", "Rejected", "Admins"
+    var selectedFilter by remember { mutableStateOf("All") } // "All", "Pending", "Approved", "Admins", "Rejected"
     var showAddUserDialog by remember { mutableStateOf(false) }
     var showExpiryDialogForUser by remember { mutableStateOf<UserAccount?>(null) }
-    
+
     // In-app update config states
     var showUpdateConfigDialog by remember { mutableStateOf(false) }
     var configOwner by remember { mutableStateOf(UpdateChecker.getGithubOwner(context)) }
     var configRepo by remember { mutableStateOf(UpdateChecker.getGithubRepo(context)) }
-    
+
     // Dialog state for manually adding user
     var manualEmail by remember { mutableStateOf("") }
     var manualRole by remember { mutableStateOf("user") }
     var manualStatus by remember { mutableStateOf("approved") }
-    
+
     // Confirmation dialog state
-    var pendingAction by remember { mutableStateOf<Triple<UserAccount, String, () -> Unit>?>(null) } // (User, ActionText, OnConfirm)
+    var pendingAction by remember { mutableStateOf<Triple<UserAccount, String, () -> Unit>?>(null) }
 
     val allUsers = authViewModel.allUsers
-    
+
     // Compute stats
     val totalCount = allUsers.size
-    val pendingCount = allUsers.count { it.status == "pending" }
-    val approvedCount = allUsers.count { it.status == "approved" }
+    val pendingCount = allUsers.count { it.status == "pending" && !it.isAdmin }
+    val approvedCount = allUsers.count { it.isApproved && !it.isAdmin }
+    val adminCount = allUsers.count { it.isAdmin }
 
     // Filtered users list
     val filteredUsers = remember(allUsers, searchQuery, selectedFilter) {
         allUsers.filter { user ->
-            val matchesSearch = user.email.contains(searchQuery, ignoreCase = true)
+            val matchesSearch = user.email.contains(searchQuery, ignoreCase = true) ||
+                    user.deviceModel.contains(searchQuery, ignoreCase = true)
             val matchesFilter = when (selectedFilter) {
                 "All" -> true
-                "Pending" -> user.status == "pending"
-                "Approved" -> user.status == "approved"
+                "Pending" -> user.status == "pending" && !user.isAdmin
+                "Approved" -> user.isApproved && !user.isAdmin
+                "Admins" -> user.isAdmin
                 "Rejected" -> user.status == "rejected"
-                "Admins" -> user.role == "admin"
                 else -> true
             }
             matchesSearch && matchesFilter
@@ -253,10 +502,10 @@ fun AdminDashboardScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { 
+                title = {
                     Column {
                         Text("Admin Control Panel", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        Text("DASMO Cyber Cafe Edition", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                        Text("subhojitpaul26042004@gmail.com", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
                     }
                 },
                 navigationIcon = {
@@ -279,7 +528,7 @@ fun AdminDashboardScreen(
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
+            ExtendedFloatingActionButton(
                 onClick = {
                     manualEmail = ""
                     manualRole = "user"
@@ -287,21 +536,17 @@ fun AdminDashboardScreen(
                     showAddUserDialog = true
                 },
                 containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary
-            ) {
-                Row(modifier = Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Add, contentDescription = "Add User")
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Pre-Approve Account", fontWeight = FontWeight.Bold)
-                }
-            }
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                icon = { Icon(Icons.Default.PersonAdd, contentDescription = null) },
+                text = { Text("Pre-Approve User", fontWeight = FontWeight.Bold) }
+            )
         }
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))
         ) {
             // Stats Row
             Row(
@@ -310,16 +555,17 @@ fun AdminDashboardScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                StatCard(title = "Total Users", value = totalCount.toString(), modifier = Modifier.weight(1f), containerColor = MaterialTheme.colorScheme.secondaryContainer)
-                StatCard(title = "Pending", value = pendingCount.toString(), modifier = Modifier.weight(1f), containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                StatCard(title = "Total", value = totalCount.toString(), modifier = Modifier.weight(1f), containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                StatCard(title = "Pending", value = pendingCount.toString(), modifier = Modifier.weight(1f), containerColor = MaterialTheme.colorScheme.errorContainer)
                 StatCard(title = "Approved", value = approvedCount.toString(), modifier = Modifier.weight(1f), containerColor = MaterialTheme.colorScheme.primaryContainer)
+                StatCard(title = "Admins", value = adminCount.toString(), modifier = Modifier.weight(1f), containerColor = MaterialTheme.colorScheme.tertiaryContainer)
             }
 
             // Search Bar
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                label = { Text("Search by user email") },
+                label = { Text("Search by user email or phone model") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
@@ -340,16 +586,22 @@ fun AdminDashboardScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val filters = listOf("All", "Pending", "Approved", "Rejected", "Admins")
-                filters.forEach { filter ->
-                    val isSelected = selectedFilter == filter
+                val filters = listOf(
+                    "All" to "All (${totalCount})",
+                    "Pending" to "Pending (${pendingCount})",
+                    "Approved" to "Approved (${approvedCount})",
+                    "Admins" to "Admins (${adminCount})",
+                    "Rejected" to "Rejected"
+                )
+                filters.forEach { (key, label) ->
+                    val isSelected = selectedFilter == key
                     FilterChip(
                         selected = isSelected,
-                        onClick = { selectedFilter = filter },
-                        label = { Text(filter) },
+                        onClick = { selectedFilter = key },
+                        label = { Text(label) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.primary,
                             selectedLabelColor = MaterialTheme.colorScheme.onPrimary
@@ -368,14 +620,14 @@ fun AdminDashboardScreen(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
-                            imageVector = Icons.Default.Search,
+                            imageVector = Icons.Default.PeopleOutline,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.size(64.dp)
+                            modifier = Modifier.size(56.dp)
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = if (searchQuery.isNotEmpty()) "No users matching '$searchQuery'" else "No users in this category",
+                            text = if (searchQuery.isNotEmpty()) "No accounts matching '$searchQuery'" else "No accounts in category '$selectedFilter'",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -387,37 +639,34 @@ fun AdminDashboardScreen(
                         .fillMaxWidth()
                         .weight(1f)
                         .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(bottom = 80.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(bottom = 88.dp, top = 6.dp)
                 ) {
-                    items(filteredUsers) { user ->
+                    items(filteredUsers, key = { it.email }) { user ->
                         EnhancedUserAdminCard(
                             user = user,
                             currentUserEmail = authViewModel.currentUser?.email ?: "",
-                            onStatusChange = { newStatus ->
-                                val actionText = when(newStatus) {
-                                    "approved" -> "approve access for"
-                                    "rejected" -> "revoke and reject access for"
-                                    else -> "set status to $newStatus for"
-                                }
-                                pendingAction = Triple(user, "Are you sure you want to $actionText ${user.email}?", {
-                                    authViewModel.updateUserStatus(user.email, newStatus)
-                                })
+                            onApprove = {
+                                authViewModel.approveUser(user.email)
                             },
-                            onRoleChange = { newRole ->
-                                pendingAction = Triple(user, "Are you sure you want to change ${user.email}'s role to ${newRole.uppercase()}?", {
-                                    authViewModel.updateUserRole(user.email, newRole)
-                                })
+                            onDecline = {
+                                authViewModel.rejectUser(user.email)
                             },
                             onResetDevice = {
-                                pendingAction = Triple(user, "Are you sure you want to UNBIND the device for ${user.email}? This will allow them to login from a new device.", {
+                                pendingAction = Triple(
+                                    user,
+                                    "Unbind hardware device lock for ${user.email}?\n\nThis allows the user to register and bind a new phone/tablet upon approval."
+                                ) {
                                     authViewModel.revokeDevice(user.email)
-                                })
+                                }
                             },
                             onDeleteUser = {
-                                pendingAction = Triple(user, "Are you sure you want to PERMANENTLY DELETE the user ${user.email}? This action cannot be undone.", {
+                                pendingAction = Triple(
+                                    user,
+                                    "Permanently delete user record for ${user.email} from Firestore?\n\nThis cannot be undone."
+                                ) {
                                     authViewModel.deleteUser(user.email)
-                                })
+                                }
                             },
                             onUpdateExpiry = {
                                 showExpiryDialogForUser = user
@@ -433,7 +682,7 @@ fun AdminDashboardScreen(
     pendingAction?.let { action ->
         AlertDialog(
             onDismissRequest = { pendingAction = null },
-            icon = { Icon(Icons.Default.Warning, contentDescription = "Warning", tint = MaterialTheme.colorScheme.error) },
+            icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
             title = { Text("Confirm Action", fontWeight = FontWeight.Bold) },
             text = { Text(action.second) },
             confirmButton = {
@@ -459,7 +708,7 @@ fun AdminDashboardScreen(
     if (showAddUserDialog) {
         AlertDialog(
             onDismissRequest = { showAddUserDialog = false },
-            title = { Text("Pre-Approve New Account", fontWeight = FontWeight.Bold) },
+            title = { Text("Pre-Approve Account", fontWeight = FontWeight.Bold) },
             text = {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -468,21 +717,18 @@ fun AdminDashboardScreen(
                     OutlinedTextField(
                         value = manualEmail,
                         onValueChange = { manualEmail = it },
-                        label = { Text("User Email Address") },
-                        placeholder = { Text("e.g. employee@gmail.com") },
+                        label = { Text("User Google Email") },
+                        placeholder = { Text("e.g. client@gmail.com") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
 
                     Column {
-                        Text("Select Role:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
+                        Text("Role:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 RadioButton(selected = manualRole == "user", onClick = { manualRole = "user" })
-                                Text("User")
+                                Text("Standard User")
                             }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 RadioButton(selected = manualRole == "admin", onClick = { manualRole = "admin" })
@@ -492,11 +738,8 @@ fun AdminDashboardScreen(
                     }
 
                     Column {
-                        Text("Initial Status:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
+                        Text("Access Status:", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 RadioButton(selected = manualStatus == "approved", onClick = { manualStatus = "approved" })
                                 Text("Approved")
@@ -519,7 +762,7 @@ fun AdminDashboardScreen(
                     },
                     enabled = manualEmail.isNotBlank()
                 ) {
-                    Text("Create Account")
+                    Text("Create & Save")
                 }
             },
             dismissButton = {
@@ -532,9 +775,9 @@ fun AdminDashboardScreen(
 
     // Expiry Plan Duration Dialog
     showExpiryDialogForUser?.let { user ->
-        var selectedPreset by remember { mutableStateOf("30") } // "1", "7", "30", "90", "180", "365", "custom", "lifetime"
+        var selectedPreset by remember { mutableStateOf("30") }
         var customDaysInput by remember { mutableStateOf("30") }
-        
+
         AlertDialog(
             onDismissRequest = { showExpiryDialogForUser = null },
             title = { Text("Set Plan Access Duration", fontWeight = FontWeight.Bold) },
@@ -546,15 +789,13 @@ fun AdminDashboardScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = "Assign or renew access plan for:\n${user.email}",
+                        text = "Assign access plan duration for:\n${user.email}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    
+
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    
-                    Text("Select Access Plan Duration:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                    
+
                     val presets = listOf(
                         "1" to "1 Day Access",
                         "7" to "7 Days Access",
@@ -563,39 +804,36 @@ fun AdminDashboardScreen(
                         "180" to "180 Days (6 Months)",
                         "365" to "365 Days (1 Year)",
                         "lifetime" to "Lifetime Access (Unlimited)",
-                        "custom" to "Custom Days Limit"
+                        "custom" to "Custom Days"
                     )
-                    
+
                     presets.forEach { (key, label) ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.clickable { selectedPreset = key }
+                            modifier = Modifier
+                                .clickable { selectedPreset = key }
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp)
                         ) {
-                            RadioButton(
-                                selected = selectedPreset == key,
-                                onClick = { selectedPreset = key }
-                            )
+                            RadioButton(selected = selectedPreset == key, onClick = { selectedPreset = key })
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(label, style = MaterialTheme.typography.bodyMedium)
                         }
                     }
-                    
+
                     if (selectedPreset == "custom") {
                         OutlinedTextField(
                             value = customDaysInput,
-                            onValueChange = { customDaysInput = it.filter { char -> char.isDigit() } },
+                            onValueChange = { customDaysInput = it.filter { c -> c.isDigit() } },
                             label = { Text("Number of Days") },
                             placeholder = { Text("e.g. 15") },
-                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 4.dp),
                             singleLine = true
                         )
                     }
-                    
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                    
-                    // Compute and preview calculated expiration date
+
                     val computedExpiryMs = remember(selectedPreset, customDaysInput) {
                         when (selectedPreset) {
                             "lifetime" -> 0L
@@ -609,21 +847,21 @@ fun AdminDashboardScreen(
                             }
                         }
                     }
-                    
+
                     val previewText = if (computedExpiryMs == 0L) {
-                        "Lifetime (Unlimited access, no expiry date)"
+                        "Lifetime (Unlimited access, no expiry)"
                     } else {
-                        val formatter = java.text.SimpleDateFormat("dd MMM yyyy, hh:mm a", java.util.Locale.getDefault())
-                        formatter.format(java.util.Date(computedExpiryMs))
+                        val formatter = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
+                        formatter.format(Date(computedExpiryMs))
                     }
-                    
+
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f), shape = RoundedCornerShape(8.dp))
-                            .padding(12.dp)
+                            .padding(10.dp)
                     ) {
-                        Text("New Expiry Date Preview:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text("Calculated Expiry Date:", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(previewText, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                     }
@@ -647,7 +885,7 @@ fun AdminDashboardScreen(
                         showExpiryDialogForUser = null
                     }
                 ) {
-                    Text("Apply Access Plan")
+                    Text("Apply Plan")
                 }
             },
             dismissButton = {
@@ -664,12 +902,7 @@ fun AdminDashboardScreen(
             onDismissRequest = { showUpdateConfigDialog = false },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.SystemUpdate,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
-                    )
+                    Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("In-App Update Source", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
@@ -677,7 +910,7 @@ fun AdminDashboardScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Specify your GitHub repository details where you publish release APKs. The app checks this repository's latest release version against the installed app version.",
+                        text = "Specify your GitHub repository details where you publish release APKs.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -685,7 +918,6 @@ fun AdminDashboardScreen(
                         value = configOwner,
                         onValueChange = { configOwner = it },
                         label = { Text("GitHub Owner / Username") },
-                        placeholder = { Text("e.g. subhojitpaul26042004") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -693,47 +925,9 @@ fun AdminDashboardScreen(
                         value = configRepo,
                         onValueChange = { configRepo = it },
                         label = { Text("GitHub Repository Name") },
-                        placeholder = { Text("e.g. dasmo-photo-print") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    
-                    var testResult by remember { mutableStateOf("") }
-                    var testing by remember { mutableStateOf(false) }
-                    val scope = rememberCoroutineScope()
-                    
-                    Button(
-                        onClick = {
-                            testing = true
-                            testResult = "Checking..."
-                            UpdateChecker.saveGithubConfig(context, configOwner, configRepo)
-                            scope.launch {
-                                val info = UpdateChecker.checkForUpdates(context)
-                                testing = false
-                                testResult = if (info.hasUpdate) {
-                                    "Newer version found: ${info.latestVersion} (Current: ${info.currentVersion})"
-                                } else {
-                                    "App is up to date! Latest: ${info.latestVersion} (Current: ${info.currentVersion})"
-                                }
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                        ),
-                        modifier = Modifier.align(Alignment.End),
-                        enabled = !testing
-                    ) {
-                        Text("Test Connection")
-                    }
-                    if (testResult.isNotEmpty()) {
-                        Text(
-                            text = testResult,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium,
-                            color = if (testResult.startsWith("Newer")) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
                 }
             },
             confirmButton = {
@@ -743,7 +937,7 @@ fun AdminDashboardScreen(
                         showUpdateConfigDialog = false
                     }
                 ) {
-                    Text("Save Configuration")
+                    Text("Save")
                 }
             },
             dismissButton = {
@@ -759,7 +953,7 @@ fun AdminDashboardScreen(
 fun StatCard(
     title: String,
     value: String,
-    containerColor: androidx.compose.ui.graphics.Color,
+    containerColor: Color,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -768,11 +962,11 @@ fun StatCard(
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
+            modifier = Modifier.padding(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(title, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium, maxLines = 1)
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
             Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
         }
     }
@@ -782,306 +976,204 @@ fun StatCard(
 fun EnhancedUserAdminCard(
     user: UserAccount,
     currentUserEmail: String,
-    onStatusChange: (String) -> Unit,
-    onRoleChange: (String) -> Unit,
+    onApprove: () -> Unit,
+    onDecline: () -> Unit,
     onResetDevice: () -> Unit,
     onDeleteUser: () -> Unit,
     onUpdateExpiry: () -> Unit
 ) {
-    val isSelf = user.email.trim().lowercase() == currentUserEmail.trim().lowercase()
     val isSuperAdmin = user.email.trim().lowercase() == "subhojitpaul26042004@gmail.com"
-    val isActionRestricted = isSelf || isSuperAdmin
+    val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
 
     Card(
         modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = when(user.status) {
-                "approved" -> MaterialTheme.colorScheme.surface
-                "pending" -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)
-                "rejected" -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-                else -> MaterialTheme.colorScheme.surface
+            containerColor = when {
+                isSuperAdmin -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                user.status == "pending" -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)
+                user.isApproved -> MaterialTheme.colorScheme.surface
+                else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
             }
         ),
-        shape = RoundedCornerShape(16.dp),
-        border = androidx.compose.foundation.BorderStroke(
-            width = if (user.status == "pending") 2.dp else 1.dp,
-            color = when(user.status) {
-                "pending" -> MaterialTheme.colorScheme.tertiary
-                "approved" -> MaterialTheme.colorScheme.outlineVariant
-                "rejected" -> MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
-                else -> MaterialTheme.colorScheme.outlineVariant
+        border = BorderStroke(
+            1.dp,
+            when {
+                isSuperAdmin -> MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                user.status == "pending" -> MaterialTheme.colorScheme.error.copy(alpha = 0.3f)
+                else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
             }
         )
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Header: Email and Status Badge
+            // Header Row: Avatar, Email, Role/Status Badges
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                val initial = user.email.take(1).uppercase()
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (user.isAdmin) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.secondaryContainer
+                        )
+                ) {
+                    Text(
+                        text = initial,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (user.isAdmin) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = user.email,
+                        style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis
                     )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                val badgeColor = when(user.status) {
-                    "approved" -> androidx.compose.ui.graphics.Color(0xFF2E7D32)
-                    "rejected" -> MaterialTheme.colorScheme.error
-                    else -> MaterialTheme.colorScheme.tertiary
-                }
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = badgeColor),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = user.status.uppercase(),
-                        color = androidx.compose.ui.graphics.Color.White,
-                        fontWeight = FontWeight.Bold,
+                        text = "📱 ${user.deviceModel.ifEmpty { "Model: Unknown" }}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "🔑 ID: ${user.deviceId.ifEmpty { "None (Unbound)" }}",
                         style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
-            }
 
-            Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Details: Role and Device ID
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    LabelValue(label = "SYSTEM ROLE", value = user.role.uppercase())
-                }
-                Column(modifier = Modifier.weight(1.5f)) {
-                    val deviceText = if (user.deviceId.isNotEmpty()) {
-                        "${user.deviceModel} (${user.deviceId.take(6)})"
+                // Badges
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (isSuperAdmin) {
+                        Badge(containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
+                            Text("SUPER ADMIN", modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp), fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                        }
                     } else {
-                        "No device registered"
+                        Badge(
+                            containerColor = when {
+                                user.isApproved -> Color(0xFF4CAF50)
+                                user.status == "pending" -> MaterialTheme.colorScheme.error
+                                else -> MaterialTheme.colorScheme.surfaceVariant
+                            },
+                            contentColor = Color.White
+                        ) {
+                            Text(
+                                text = when {
+                                    user.isApproved -> "APPROVED"
+                                    user.status == "pending" -> "PENDING"
+                                    else -> user.status.uppercase()
+                                },
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 9.sp
+                            )
+                        }
                     }
-                    LabelValue(label = "DEVICE BOUND", value = deviceText)
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Access Plan Expiry row
+            // Info details: Plan Expiry
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    val expiryText = if (user.expiryTimestamp == 0L) {
-                        "Lifetime (Unlimited Access)"
-                    } else {
-                        val formatter = java.text.SimpleDateFormat("dd MMM yyyy, hh:mm a", java.util.Locale.getDefault())
-                        val dateStr = formatter.format(java.util.Date(user.expiryTimestamp))
-                        val timeLeftMs = user.expiryTimestamp - System.currentTimeMillis()
-                        if (timeLeftMs > 0) {
-                            val daysLeft = timeLeftMs / (1000 * 60 * 60 * 24)
-                            val hoursLeft = (timeLeftMs / (1000 * 60 * 60)) % 24
-                            val timeString = if (daysLeft > 0) "$daysLeft days left" else "$hoursLeft hrs left"
-                            "$dateStr ($timeString)"
-                        } else {
-                            "EXPIRED ($dateStr)"
-                        }
-                    }
-                    LabelValue(label = "ACCESS PLAN EXPIRE TIME", value = expiryText)
+                val expiryText = if (user.expiryTimestamp == 0L) {
+                    "Plan: Lifetime (No Expiry)"
+                } else {
+                    val sdf = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
+                    "Plan Ends: ${sdf.format(Date(user.expiryTimestamp))}"
                 }
-                
-                IconButton(
-                    onClick = onUpdateExpiry,
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    ),
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Edit Expiry Duration",
-                        modifier = Modifier.size(20.dp)
-                    )
+                Text(
+                    text = expiryText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (!isSuperAdmin) {
+                    TextButton(
+                        onClick = onUpdateExpiry,
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                        modifier = Modifier.height(26.dp)
+                    ) {
+                        Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Edit Plan", fontSize = 11.sp)
+                    }
                 }
             }
 
-            if (isActionRestricted) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
-                    ),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = "Info",
-                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = if (isSelf) "Logged-in Admin (Protected)" else "Primary Super Admin (Protected)",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    }
-                }
-            } else {
-                Spacer(modifier = Modifier.height(16.dp))
+            if (!isSuperAdmin) {
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // Actions: Quick toggle/manage access
-                Text(
-                    "ADMINISTRATION ACTIONS",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
+                // Action Button Row
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Access Approval Toggle
-                    if (user.status != "approved") {
+                    if (!user.isApproved || user.status == "pending") {
                         Button(
-                            onClick = { onStatusChange("approved") },
-                            modifier = Modifier.weight(1.3f),
-                            colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF2E7D32)),
-                            contentPadding = PaddingValues(horizontal = 8.dp)
+                            onClick = onApprove,
+                            modifier = Modifier.weight(1f).height(38.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
                         ) {
                             Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Approve Access", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            Text("Approve", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                         }
                     } else {
-                        Button(
-                            onClick = { onStatusChange("rejected") },
-                            modifier = Modifier.weight(1.3f),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        OutlinedButton(
+                            onClick = onDecline,
+                            modifier = Modifier.weight(1f).height(38.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                         ) {
                             Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Revoke Access", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            Text("Revoke", fontSize = 12.sp)
                         }
                     }
 
-                    // Role Toggler
-                    val targetRole = if (user.role == "admin") "user" else "admin"
-                    OutlinedButton(
-                        onClick = { onRoleChange(targetRole) },
-                        modifier = Modifier.weight(1.1f),
-                        contentPadding = PaddingValues(horizontal = 4.dp)
-                    ) {
-                        Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (user.role == "admin") "Demote" else "Make Admin",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
-
-                // Unbind Device Action
-                if (user.deviceId.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    // Reset Device Button
                     OutlinedButton(
                         onClick = onResetDevice,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
+                        modifier = Modifier.height(38.dp),
+                        shape = RoundedCornerShape(10.dp)
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Unbind & Reset Device Bind", fontWeight = FontWeight.SemiBold)
+                        Icon(Icons.Default.PhonelinkErase, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Reset Device", fontSize = 11.sp)
+                    }
+
+                    // Delete User Button
+                    IconButton(
+                        onClick = onDeleteUser,
+                        modifier = Modifier.size(38.dp),
+                        colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.DeleteOutline, contentDescription = "Delete")
                     }
                 }
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = onDeleteUser,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f))
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Delete User Account", fontWeight = FontWeight.SemiBold)
-                }
             }
-        }
-    }
-}
-
-@Composable
-fun LabelValue(label: String, value: String) {
-    Column {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-        )
-        Spacer(modifier = Modifier.height(2.dp))
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-    }
-}
-
-@Composable
-fun OfflineBlockingScreen() {
-    Box(
-        modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.padding(32.dp).verticalScroll(rememberScrollState())
-        ) {
-            Icon(
-                imageVector = Icons.Default.WifiOff,
-                contentDescription = "Offline",
-                modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.error
-            )
-            Text(
-                text = "Internet Connection Required",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.error
-            )
-            Text(
-                text = "To ensure secure session continuity and prevent unauthorized access, an active internet connection is required. Reconnecting...",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
-            CircularProgressIndicator(
-                modifier = Modifier.padding(top = 16.dp)
-            )
         }
     }
 }
