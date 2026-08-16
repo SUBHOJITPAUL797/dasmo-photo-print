@@ -119,16 +119,36 @@ class AuthViewModel : ViewModel() {
                     )
 
                     withContext(Dispatchers.Main) {
+                        // 1. Strict Hardware Device Binding Check (One Account Per Physical Device)
+                        if (user.deviceId.isNotEmpty() && user.deviceId != deviceId) {
+                            authState = AuthState.DeviceMismatch(
+                                registeredDeviceModel = user.deviceModel.ifEmpty { "Another Device" },
+                                user = user
+                            )
+                            startUserDocObserver(trimmedEmail, deviceId, onSessionCreated)
+                            return@withContext
+                        }
+
+                        // If not yet bound to a device (first login or after admin unbinds), bind this physical device:
+                        if (user.deviceId.isEmpty()) {
+                            docRef.update(
+                                mapOf(
+                                    "deviceId" to deviceId,
+                                    "dasmo_deviceId" to deviceId,
+                                    "deviceModel" to deviceModel,
+                                    "lastActiveTimestamp" to System.currentTimeMillis()
+                                )
+                            )
+                            user = user.copy(deviceId = deviceId, deviceModel = deviceModel)
+                        }
+
                         if (isSuperAdmin) {
-                            // Admin has instant unrestricted access everywhere
                             val newSessionToken = UUID.randomUUID().toString()
                             user = user.copy(
                                 isApproved = true,
                                 isAdmin = true,
                                 role = "admin",
                                 status = "approved",
-                                deviceId = deviceId,
-                                deviceModel = deviceModel,
                                 currentSessionToken = newSessionToken,
                                 lastActiveTimestamp = System.currentTimeMillis()
                             )
@@ -137,32 +157,10 @@ class AuthViewModel : ViewModel() {
                             authState = AuthState.Authenticated(user)
                             onSessionCreated?.invoke(newSessionToken)
                             startListeningUsers(context)
+                            startUserDocObserver(trimmedEmail, deviceId, onSessionCreated)
                         } else {
-                            // Standard User Enforcement
-                            // 1. Device Binding Verification (Anti-sharing)
-                            if (user.deviceId.isNotEmpty() && user.deviceId != deviceId) {
-                                authState = AuthState.DeviceMismatch(
-                                    registeredDeviceModel = user.deviceModel.ifEmpty { "Another Device" },
-                                    user = user
-                                )
-                                startUserDocObserver(trimmedEmail, deviceId, onSessionCreated)
-                                return@withContext
-                            }
-
                             // 2. Admin Approval Verification
                             if (!user.isApproved || user.status != "approved") {
-                                // If deviceId is blank, bind current device for registration
-                                if (user.deviceId.isEmpty()) {
-                                    docRef.update(
-                                        mapOf(
-                                            "deviceId" to deviceId,
-                                            "dasmo_deviceId" to deviceId,
-                                            "deviceModel" to deviceModel,
-                                            "lastActiveTimestamp" to System.currentTimeMillis()
-                                        )
-                                    )
-                                    user = user.copy(deviceId = deviceId, deviceModel = deviceModel)
-                                }
                                 authState = AuthState.PendingApproval(user)
                                 startUserDocObserver(trimmedEmail, deviceId, onSessionCreated)
                                 return@withContext
@@ -179,16 +177,11 @@ class AuthViewModel : ViewModel() {
                             // 4. Approved and Authorized: Grant Access!
                             val newSessionToken = UUID.randomUUID().toString()
                             user = user.copy(
-                                deviceId = deviceId,
-                                deviceModel = deviceModel,
                                 currentSessionToken = newSessionToken,
                                 lastActiveTimestamp = System.currentTimeMillis()
                             )
                             docRef.update(
                                 mapOf(
-                                    "deviceId" to deviceId,
-                                    "dasmo_deviceId" to deviceId,
-                                    "deviceModel" to deviceModel,
                                     "currentSessionToken" to newSessionToken,
                                     "lastActiveTimestamp" to System.currentTimeMillis(),
                                     "appSource" to "DASMO Photo Print"
@@ -225,6 +218,7 @@ class AuthViewModel : ViewModel() {
                             authState = AuthState.Authenticated(newUser)
                             onSessionCreated?.invoke(newSessionToken)
                             startListeningUsers(context)
+                            startUserDocObserver(trimmedEmail, deviceId, onSessionCreated)
                         } else {
                             authState = AuthState.PendingApproval(newUser)
                             startUserDocObserver(trimmedEmail, deviceId, onSessionCreated)
@@ -282,6 +276,15 @@ class AuthViewModel : ViewModel() {
                     appSource = "DASMO Photo Print"
                 )
 
+                // 1. Strict Hardware Device Binding Check (One Account Per Physical Device)
+                if (user.deviceId.isNotEmpty() && user.deviceId != currentDeviceId) {
+                    authState = AuthState.DeviceMismatch(
+                        registeredDeviceModel = user.deviceModel.ifEmpty { "Another Device" },
+                        user = user
+                    )
+                    return@addSnapshotListener
+                }
+
                 if (rawAdmin) {
                     currentUser = user
                     if (authState !is AuthState.Authenticated) {
@@ -290,13 +293,7 @@ class AuthViewModel : ViewModel() {
                     return@addSnapshotListener
                 }
 
-                // Standard user live updates
-                if (user.deviceId.isNotEmpty() && user.deviceId != currentDeviceId) {
-                    authState = AuthState.DeviceMismatch(
-                        registeredDeviceModel = user.deviceModel.ifEmpty { "Another Device" },
-                        user = user
-                    )
-                } else if (!user.isApproved || user.status != "approved") {
+                if (!user.isApproved || user.status != "approved") {
                     authState = AuthState.PendingApproval(user)
                 } else if (user.expiryTimestamp > 0L && System.currentTimeMillis() > user.expiryTimestamp) {
                     authState = AuthState.Error("Subscription Plan Expired. Contact administrator to renew.")
