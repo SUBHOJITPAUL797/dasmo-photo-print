@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.widget.Toast
+import com.example.R
 import com.example.domain.model.UserAccount
 import com.example.ui.AuthViewModel
 import com.example.util.UpdateChecker
@@ -57,20 +58,34 @@ fun LoginScreen(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
         isSigningIn = false
-        if (result.resultCode == Activity.RESULT_OK) {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-            try {
-                val account = task.getResult(ApiException::class.java)
-                val email = account?.email
-                if (!email.isNullOrBlank()) {
-                    authViewModel.login(context, email, null) { token ->
-                        onLoginSuccess(email, token)
-                    }
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        try {
+            val account = task.getResult(ApiException::class.java)
+            val email = account?.email
+            if (!email.isNullOrBlank()) {
+                if (account.idToken != null) {
+                    val credential = com.google.firebase.auth.GoogleAuthProvider.getCredential(account.idToken, null)
+                    com.google.firebase.auth.FirebaseAuth.getInstance().signInWithCredential(credential)
                 }
-            } catch (e: ApiException) {
-                e.printStackTrace()
-                Toast.makeText(context, "Sign-In Error (${e.statusCode}): ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                authViewModel.login(context, email, null) { token ->
+                    onLoginSuccess(email, token)
+                }
+            } else {
+                Toast.makeText(context, "No email found in Google Account", Toast.LENGTH_LONG).show()
             }
+        } catch (e: ApiException) {
+            e.printStackTrace()
+            val msg = when (e.statusCode) {
+                10 -> "Developer Error (10): SHA-1 fingerprint mismatch."
+                12501 -> "Sign-in cancelled."
+                else -> "Sign-In Error (${e.statusCode}): ${e.localizedMessage ?: "Unknown error"}"
+            }
+            if (e.statusCode != 12501) {
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Toast.makeText(context, "Sign-In Exception: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -152,6 +167,7 @@ fun LoginScreen(
                     onClick = {
                         isSigningIn = true
                         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                            .requestIdToken(context.getString(R.string.default_web_client_id))
                             .requestEmail()
                             .build()
                         val mGoogleSignInClient = GoogleSignIn.getClient(context, gso)
