@@ -538,31 +538,22 @@ fun A4SimulatedSheet(
                     val w = cellWVal * pXcm
                     val h = cellHVal * pXcm
 
-                    // Draw cutting guides if enabled
+                    // Draw cutting guides if enabled (1 point = 2.54 / 72 cm = 0.03527778 cm)
                     if (cuttingGuidesEnabled) {
+                        val strokeWidthPx = (cuttingGuideThicknessPt * (2.54f / 72f) * pXcm).coerceAtLeast(1f)
+                        val dashUnitPx = (4f * (2.54f / 72f) * pXcm).coerceAtLeast(3f)
+
                         drawRect(
                             color = Color(cuttingGuideColor),
                             topLeft = Offset(x, y),
                             size = Size(w, h),
                             style = Stroke(
-                                width = (cuttingGuideThicknessPt * 0.352778f * pXcm).coerceAtLeast(1f),
-                                pathEffect = if (cuttingGuideStyle == "dashed") PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f) else null
+                                width = strokeWidthPx,
+                                pathEffect = if (cuttingGuideStyle == "dashed") PathEffect.dashPathEffect(floatArrayOf(dashUnitPx, dashUnitPx), 0f) else null
                             )
                         )
                     }
                 }
-
-                // Draw page safe-margin border markers to aid in cyber café layout inspections
-                val marginBorderPx = marginCm * pXcm
-                drawRect(
-                    color = Color.Red.copy(alpha = 0.2f),
-                    topLeft = Offset(marginBorderPx, marginBorderPx),
-                    size = Size(size.width - 2 * marginBorderPx, size.height - 2 * marginBorderPx),
-                    style = Stroke(
-                        width = 0.5.dp.toPx(),
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 5f), 0f)
-                    )
-                )
             }
         } else {
             Box(
