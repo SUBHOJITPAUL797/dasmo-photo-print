@@ -94,18 +94,98 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
     var ratePerSheet by mutableStateOf("20.0")
     var extraServicesFee by mutableStateOf("0.0")
 
-    // Batch Paper Saver items
+    // Paper Size Selection (A4, 4x6", 5x7")
+    var selectedPaperSpec by mutableStateOf(com.example.domain.model.PaperSizeSpec.A4)
+
+    // Batch Paper Saver items & templates
     val batchItems = mutableStateListOf<com.example.domain.model.BatchItem>()
 
-    fun addBatchItem(label: String, widthCm: Float, heightCm: Float, quantity: Int) {
+    val batchTemplates = listOf(
+        com.example.domain.model.BatchTemplate(
+            id = "preset_8_4",
+            title = "8 Passport + 4 Stamp",
+            totalCount = 12,
+            description = "8 India Passport (3.5×4.5cm) + 4 Stamp (2×2.5cm) • 12 pcs Total",
+            items = listOf(
+                com.example.domain.model.BatchItemSpec("India Passport", 3.5f, 4.5f, 8),
+                com.example.domain.model.BatchItemSpec("Stamp Size", 2.0f, 2.5f, 4)
+            )
+        ),
+        com.example.domain.model.BatchTemplate(
+            id = "preset_16_8",
+            title = "16 Passport + 8 Stamp",
+            totalCount = 24,
+            description = "16 India Passport (3.5×4.5cm) + 8 Stamp (2×2.5cm) • 24 pcs Total",
+            items = listOf(
+                com.example.domain.model.BatchItemSpec("India Passport", 3.5f, 4.5f, 16),
+                com.example.domain.model.BatchItemSpec("Stamp Size", 2.0f, 2.5f, 8)
+            )
+        ),
+        com.example.domain.model.BatchTemplate(
+            id = "preset_8_2_visa",
+            title = "8 Passport + 2 Visa 2×2\"",
+            totalCount = 10,
+            description = "8 India Passport (3.5×4.5cm) + 2 US Visa (5.08×5.08cm) • 10 pcs Total",
+            items = listOf(
+                com.example.domain.model.BatchItemSpec("India Passport", 3.5f, 4.5f, 8),
+                com.example.domain.model.BatchItemSpec("US Visa (2×2\")", 5.08f, 5.08f, 2)
+            )
+        ),
+        com.example.domain.model.BatchTemplate(
+            id = "preset_12_4_pan",
+            title = "12 Passport + 4 PAN Photo",
+            totalCount = 16,
+            description = "12 India Passport (3.5×4.5cm) + 4 PAN/Voter (2.5×3.5cm) • 16 pcs Total",
+            items = listOf(
+                com.example.domain.model.BatchItemSpec("India Passport", 3.5f, 4.5f, 12),
+                com.example.domain.model.BatchItemSpec("PAN / Voter Photo", 2.5f, 3.5f, 4)
+            )
+        )
+    )
+
+    fun applyBatchTemplate(template: com.example.domain.model.BatchTemplate) {
+        batchItems.clear()
+        for (item in template.items) {
+            batchItems.add(
+                com.example.domain.model.BatchItem(
+                    label = item.label,
+                    widthCm = item.widthCm,
+                    heightCm = item.heightCm,
+                    quantity = item.quantity
+                )
+            )
+        }
+        computeCurrentLayout()
+        pushHistoryState()
+    }
+
+    fun addBatchItem(label: String = "Custom Size", widthCm: Float = 3.5f, heightCm: Float = 4.5f, quantity: Int = 4) {
         batchItems.add(com.example.domain.model.BatchItem(label = label, widthCm = widthCm, heightCm = heightCm, quantity = quantity))
         computeCurrentLayout()
+        pushHistoryState()
+    }
+
+    fun updateBatchItem(id: String, label: String, widthCm: Float, heightCm: Float, quantity: Int) {
+        val index = batchItems.indexOfFirst { it.id == id }
+        if (index != -1) {
+            batchItems[index] = batchItems[index].copy(label = label, widthCm = widthCm, heightCm = heightCm, quantity = quantity)
+            computeCurrentLayout()
+            pushHistoryStateDebounced()
+        }
     }
 
     fun removeBatchItem(id: String) {
-        batchItems.removeAll { it.id == id }
-        computeCurrentLayout()
+        if (batchItems.size > 1) {
+            batchItems.removeAll { it.id == id }
+            computeCurrentLayout()
+            pushHistoryState()
+        }
     }
+
+    fun getTotalBatchPhotosCount(): Int {
+        return batchItems.sumOf { it.quantity }
+    }
+
 
     // Photo Assets State
     var photoAUri by mutableStateOf<Uri?>(null)
@@ -295,6 +375,10 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
         filename = "PassportPhotos_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
         saveSuccessMessage = null
         idCardArrangement = "HORIZONTAL"
+        selectedPaperSpec = com.example.domain.model.PaperSizeSpec.A4
+        batchItems.clear()
+        batchItems.add(com.example.domain.model.BatchItem(label = "India Passport", widthCm = 3.5f, heightCm = 4.5f, quantity = 8))
+        batchItems.add(com.example.domain.model.BatchItem(label = "Stamp Size", widthCm = 2.0f, heightCm = 2.5f, quantity = 4))
 
         initHistory()
         currentStep = 1
@@ -339,8 +423,10 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
 
         val finalAllowRotation = if (mode == ProjectMode.ID_CARD) false else allowRotation
 
-        val pWidth = if (pageOrientation == PageOrientation.PORTRAIT) 21.0f else 29.7f
-        val pHeight = if (pageOrientation == PageOrientation.PORTRAIT) 29.7f else 21.0f
+        val basePaperWidth = selectedPaperSpec.widthCm
+        val basePaperHeight = selectedPaperSpec.heightCm
+        val pWidth = if (pageOrientation == PageOrientation.PORTRAIT) minOf(basePaperWidth, basePaperHeight) else maxOf(basePaperWidth, basePaperHeight)
+        val pHeight = if (pageOrientation == PageOrientation.PORTRAIT) maxOf(basePaperWidth, basePaperHeight) else minOf(basePaperWidth, basePaperHeight)
 
         val topOff = topOffsetMm.toFloatOrNull() ?: 0.0f
         val leftOff = leftOffsetMm.toFloatOrNull() ?: 0.0f
@@ -364,8 +450,8 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
         try {
             if (mode == ProjectMode.BATCH_PAPER_SAVER) {
                 if (batchItems.isEmpty()) {
-                    // Pre-populate with default mixed set
-                    batchItems.add(com.example.domain.model.BatchItem(label = "India Passport", widthCm = 3.5f, heightCm = 4.5f, quantity = 4))
+                    // Pre-populate with default 8 Passport + 4 Stamp = 12 pcs
+                    batchItems.add(com.example.domain.model.BatchItem(label = "India Passport", widthCm = 3.5f, heightCm = 4.5f, quantity = 8))
                     batchItems.add(com.example.domain.model.BatchItem(label = "Stamp Size", widthCm = 2.0f, heightCm = 2.5f, quantity = 4))
                 }
                 computedPages = LayoutEngine.computeMixedBatchLayout(batchItems, settings)
@@ -376,7 +462,7 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
         } catch (e: LayoutException) {
             // Smart layout auto-switching fallback:
             if (pageOrientation == PageOrientation.PORTRAIT) {
-                val altSettings = settings.copy(pageWidthCm = 29.7f, pageHeightCm = 21.0f)
+                val altSettings = settings.copy(pageWidthCm = pHeight, pageHeightCm = pWidth)
                 try {
                     computedPages = LayoutEngine.computeLayout(unitSize, q, altSettings)
                     pageOrientation = PageOrientation.LANDSCAPE
@@ -385,7 +471,7 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
                     // Both failed
                 }
             } else {
-                val altSettings = settings.copy(pageWidthCm = 21.0f, pageHeightCm = 29.7f)
+                val altSettings = settings.copy(pageWidthCm = pHeight, pageHeightCm = pWidth)
                 try {
                     computedPages = LayoutEngine.computeLayout(unitSize, q, altSettings)
                     pageOrientation = PageOrientation.PORTRAIT
@@ -566,8 +652,10 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
                 val s = spacingCm.toFloatOrNull() ?: 0.2f
 
                 if (pages.isNotEmpty() && bitmap != null) {
-                    val pWidth = if (pageOrientation == PageOrientation.PORTRAIT) 21.0f else 29.7f
-                    val pHeight = if (pageOrientation == PageOrientation.PORTRAIT) 29.7f else 21.0f
+                    val basePaperWidth = selectedPaperSpec.widthCm
+                    val basePaperHeight = selectedPaperSpec.heightCm
+                    val pWidth = if (pageOrientation == PageOrientation.PORTRAIT) minOf(basePaperWidth, basePaperHeight) else maxOf(basePaperWidth, basePaperHeight)
+                    val pHeight = if (pageOrientation == PageOrientation.PORTRAIT) maxOf(basePaperWidth, basePaperHeight) else minOf(basePaperWidth, basePaperHeight)
 
                     val unitSize = getUnitSize()
                     val settings = LayoutSettings(

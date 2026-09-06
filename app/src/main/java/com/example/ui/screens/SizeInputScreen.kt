@@ -31,7 +31,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.domain.model.ProjectMode
+import com.example.domain.model.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.shape.CircleShape
 import com.example.ui.ProjectViewModel
 
 @OptIn(ExperimentalAnimationApi::class, ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -42,6 +44,8 @@ fun SizeInputScreen(
     onNextClicked: () -> Unit
 ) {
     val scrollState = rememberScrollState()
+
+    val isBatchMode = viewModel.mode == ProjectMode.BATCH_PAPER_SAVER
 
     // Validation checks
     val isWidthValid = remember(viewModel.widthCm) {
@@ -59,14 +63,24 @@ fun SizeInputScreen(
         q != null && q > 0 && q <= 1000
     }
 
+    val isBatchValid = remember(viewModel.batchItems.size, viewModel.batchItems.map { "${it.quantity}_${it.widthCm}_${it.heightCm}" }) {
+        viewModel.batchItems.isNotEmpty() && viewModel.batchItems.all { it.quantity > 0 && it.widthCm >= 0.5f && it.heightCm >= 0.5f }
+    }
+
     var isAdvancedExpanded by remember { mutableStateOf(false) }
 
-    val canProceed = isWidthValid && isHeightValid && isQuantityValid
+    val canProceed = if (isBatchMode) isBatchValid else (isWidthValid && isHeightValid && isQuantityValid)
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (viewModel.mode == ProjectMode.JOINT) "Joint Size Config" else "Photo Size Config") },
+                title = {
+                    Text(
+                        if (viewModel.mode == ProjectMode.BATCH_PAPER_SAVER) "Mixed Photo Batch Studio"
+                        else if (viewModel.mode == ProjectMode.JOINT) "Joint Size Config"
+                        else "Photo Size Config"
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBackClicked, modifier = Modifier.testTag("size_back_btn")) {
                         Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Go back")
@@ -147,165 +161,171 @@ fun SizeInputScreen(
                 )
             }
 
-            Text(
-                text = "Enter Print Dimensions",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Black
-            )
+            if (isBatchMode) {
+                MixedBatchStudioContent(
+                    viewModel = viewModel
+                )
+            } else {
+                Text(
+                    text = "Enter Print Dimensions",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Black
+                )
 
-            // Dynamic Interactive Studio Guide
-            DimensionPreview(
-                mode = viewModel.mode,
-                widthStr = viewModel.widthCm,
-                heightStr = viewModel.heightCm,
-                spacingStr = viewModel.spacingCm,
-                cuttingGuidesEnabled = viewModel.cuttingGuidesEnabled,
-                marginStr = viewModel.marginCm,
-                modifier = Modifier.fillMaxWidth()
-            )
+                // Dynamic Interactive Studio Guide
+                DimensionPreview(
+                    mode = viewModel.mode,
+                    widthStr = viewModel.widthCm,
+                    heightStr = viewModel.heightCm,
+                    spacingStr = viewModel.spacingCm,
+                    cuttingGuidesEnabled = viewModel.cuttingGuidesEnabled,
+                    marginStr = viewModel.marginCm,
+                    modifier = Modifier.fillMaxWidth()
+                )
 
-            // Preset Chips Selection
-            Text(
-                text = "Quick Presets:",
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+                // Preset Chips Selection
+                Text(
+                    text = "Quick Presets:",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
 
-            val presetChips = when (viewModel.mode) {
-                ProjectMode.JOINT -> {
-                    listOf(
-                        PresetSize("Standard Joint (6×4.5 cm)", 6.0f, 4.5f),
-                        PresetSize("Small Joint (5×3.5 cm)", 5.0f, 3.5f),
-                        PresetSize("Custom Joint", 0.0f, 0.0f)
-                    )
-                }
-                ProjectMode.ID_CARD -> {
-                    listOf(
-                        PresetSize("Aadhaar Card", 8.5f, 5.5f),
-                        PresetSize("PAN Card", 8.5f, 5.4f),
-                        PresetSize("Voter ID / DL", 8.5f, 5.4f),
-                        PresetSize("Custom ID Card", 0.0f, 0.0f)
-                    )
-                }
-                else -> {
-                    listOf(
-                        PresetSize("Passport (India)", 3.5f, 4.5f),
-                        PresetSize("PAN / Voter ID Photo", 2.5f, 3.5f),
-                        PresetSize("US Visa (2×2')", 5.08f, 5.08f),
-                        PresetSize("Stamp size", 2.0f, 2.5f),
-                        PresetSize("Custom Size", 0.0f, 0.0f)
-                    )
-                }
-            }
-
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                presetChips.forEach { chip ->
-                    val matchesAnyOtherPreset = presetChips.any { other ->
-                        other.width > 0f && viewModel.widthCm == other.width.toString() && viewModel.heightCm == other.height.toString()
+                val presetChips = when (viewModel.mode) {
+                    ProjectMode.JOINT -> {
+                        listOf(
+                            PresetSize("Standard Joint (6×4.5 cm)", 6.0f, 4.5f),
+                            PresetSize("Small Joint (5×3.5 cm)", 5.0f, 3.5f),
+                            PresetSize("Custom Joint", 0.0f, 0.0f)
+                        )
                     }
-                    val isSelected = if (chip.width == 0f) {
-                        !matchesAnyOtherPreset || (viewModel.widthCm.isEmpty() && viewModel.heightCm.isEmpty())
-                    } else {
-                        viewModel.widthCm == chip.width.toString() && viewModel.heightCm == chip.height.toString()
+                    ProjectMode.ID_CARD -> {
+                        listOf(
+                            PresetSize("Aadhaar Card", 8.5f, 5.5f),
+                            PresetSize("PAN Card", 8.5f, 5.4f),
+                            PresetSize("Voter ID / DL", 8.5f, 5.4f),
+                            PresetSize("Custom ID Card", 0.0f, 0.0f)
+                        )
                     }
+                    else -> {
+                        listOf(
+                            PresetSize("Passport (India)", 3.5f, 4.5f),
+                            PresetSize("PAN / Voter ID Photo", 2.5f, 3.5f),
+                            PresetSize("US Visa (2×2')", 5.08f, 5.08f),
+                            PresetSize("Stamp size", 2.0f, 2.5f),
+                            PresetSize("Custom Size", 0.0f, 0.0f)
+                        )
+                    }
+                }
 
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = {
-                            if (chip.width > 0f) {
-                                viewModel.selectPreset(chip.name, chip.width, chip.height)
-                            } else {
-                                viewModel.widthCm = ""
-                                viewModel.heightCm = ""
-                            }
-                            viewModel.pushHistoryState()
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    presetChips.forEach { chip ->
+                        val matchesAnyOtherPreset = presetChips.any { other ->
+                            other.width > 0f && viewModel.widthCm == other.width.toString() && viewModel.heightCm == other.height.toString()
+                        }
+                        val isSelected = if (chip.width == 0f) {
+                            !matchesAnyOtherPreset || (viewModel.widthCm.isEmpty() && viewModel.heightCm.isEmpty())
+                        } else {
+                            viewModel.widthCm == chip.width.toString() && viewModel.heightCm == chip.height.toString()
+                        }
+
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = {
+                                if (chip.width > 0f) {
+                                    viewModel.selectPreset(chip.name, chip.width, chip.height)
+                                } else {
+                                    viewModel.widthCm = ""
+                                    viewModel.heightCm = ""
+                                }
+                                viewModel.pushHistoryState()
+                            },
+                            label = { Text(chip.name) },
+                            modifier = Modifier.testTag("preset_chip_${chip.name.replace(" ", "_")}")
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Main Dimensions inputs
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    OutlinedTextField(
+                        value = viewModel.widthCm,
+                        onValueChange = { 
+                            viewModel.widthCm = it 
+                            viewModel.pushHistoryStateDebounced()
                         },
-                        label = { Text(chip.name) },
-                        modifier = Modifier.testTag("preset_chip_${chip.name.replace(" ", "_")}")
+                        label = { Text("Width (cm)") },
+                        isError = !isWidthValid,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.weight(1f).testTag("size_width_field"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary
+                        )
+                    )
+
+                    OutlinedTextField(
+                        value = viewModel.heightCm,
+                        onValueChange = { 
+                            viewModel.heightCm = it 
+                            viewModel.pushHistoryStateDebounced()
+                        },
+                        label = { Text("Height (cm)") },
+                        isError = !isHeightValid,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.weight(1f).testTag("size_height_field"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary
+                        )
                     )
                 }
-            }
 
-            Spacer(modifier = Modifier.height(8.dp))
+                if (!isWidthValid && viewModel.widthCm.isNotEmpty()) {
+                    Text(
+                        text = "Width must be between 0.5 cm and 29.7 cm.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (!isHeightValid && viewModel.heightCm.isNotEmpty()) {
+                    Text(
+                        text = "Height must be between 0.5 cm and 29.7 cm.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
 
-            // Main Dimensions inputs
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
+                // Print Quantity Card
                 OutlinedTextField(
-                    value = viewModel.widthCm,
+                    value = viewModel.quantity,
                     onValueChange = { 
-                        viewModel.widthCm = it 
+                        viewModel.quantity = it 
                         viewModel.pushHistoryStateDebounced()
                     },
-                    label = { Text("Width (cm)") },
-                    isError = !isWidthValid,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.weight(1f).testTag("size_width_field"),
+                    label = { Text("Number of Copies") },
+                    isError = !isQuantityValid,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth().testTag("size_quantity_field"),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.primary
                     )
                 )
 
-                OutlinedTextField(
-                    value = viewModel.heightCm,
-                    onValueChange = { 
-                        viewModel.heightCm = it 
-                        viewModel.pushHistoryStateDebounced()
-                    },
-                    label = { Text("Height (cm)") },
-                    isError = !isHeightValid,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                    modifier = Modifier.weight(1f).testTag("size_height_field"),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary
+                if (!isQuantityValid && viewModel.quantity.isNotEmpty()) {
+                    Text(
+                        text = "Enter a valid quantity (between 1 and 1000).",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
                     )
-                )
-            }
-
-            if (!isWidthValid && viewModel.widthCm.isNotEmpty()) {
-                Text(
-                    text = "Width must be between 0.5 cm and 29.7 cm.",
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            if (!isHeightValid && viewModel.heightCm.isNotEmpty()) {
-                Text(
-                    text = "Height must be between 0.5 cm and 29.7 cm.",
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-
-            // Print Quantity Card
-            OutlinedTextField(
-                value = viewModel.quantity,
-                onValueChange = { 
-                    viewModel.quantity = it 
-                    viewModel.pushHistoryStateDebounced()
-                },
-                label = { Text("Number of Copies") },
-                isError = !isQuantityValid,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth().testTag("size_quantity_field"),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary
-                )
-            )
-
-            if (!isQuantityValid && viewModel.quantity.isNotEmpty()) {
-                Text(
-                    text = "Enter a valid quantity (between 1 and 1000).",
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall
-                )
+                }
             }
 
             if (viewModel.isLayoutTooLargeError) {
@@ -1268,3 +1288,610 @@ data class PresetSize(
     val width: Float,
     val height: Float
 )
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun MixedBatchStudioContent(
+    viewModel: ProjectViewModel
+) {
+    val totalPhotos = viewModel.getTotalBatchPhotosCount()
+    val pages = viewModel.computedPages
+    val selectedPaper = viewModel.selectedPaperSpec
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Title & Description
+        Column {
+            Text(
+                text = "Mixed Photo Batch Studio",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Black
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Combine multiple photo sizes on 1 sheet to eliminate photo paper waste. All photos of the same height sit in straight cutting rows!",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        // 1. One-Tap Quick Templates (Matches customer request 8 Passport + 4 Stamp = 12 pcs!)
+        Text(
+            text = "⚡ Quick Order Presets:",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            viewModel.batchTemplates.forEach { template ->
+                val isSelected = viewModel.batchItems.size == template.items.size &&
+                        viewModel.batchItems.zip(template.items).all { (actual, expected) ->
+                            actual.widthCm == expected.widthCm &&
+                            actual.heightCm == expected.heightCm &&
+                            actual.quantity == expected.quantity
+                        }
+
+                FilterChip(
+                    selected = isSelected,
+                    onClick = {
+                        viewModel.applyBatchTemplate(template)
+                    },
+                    label = {
+                        Text("${template.title} (${template.totalCount} pcs)")
+                    },
+                    leadingIcon = if (isSelected) {
+                        { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
+                    } else {
+                        { Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary) }
+                    }
+                )
+            }
+        }
+
+        // 2. Paper Format & Orientation Bar
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+            )
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Photo Paper Format",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "${selectedPaper.widthCm} × ${selectedPaper.heightCm} cm",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    PaperSizeSpec.DEFAULT_PAPERS.forEach { paper ->
+                        FilterChip(
+                            selected = selectedPaper.id == paper.id,
+                            onClick = {
+                                viewModel.selectedPaperSpec = paper
+                                viewModel.computeCurrentLayout()
+                                viewModel.pushHistoryState()
+                            },
+                            label = { Text(paper.name) },
+                            leadingIcon = {
+                                Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(16.dp))
+                            }
+                        )
+                    }
+
+                    // Orientation toggles
+                    val isPortrait = viewModel.pageOrientation == PageOrientation.PORTRAIT
+                    FilterChip(
+                        selected = isPortrait,
+                        onClick = {
+                            if (!isPortrait) {
+                                viewModel.pageOrientation = PageOrientation.PORTRAIT
+                                viewModel.computeCurrentLayout()
+                                viewModel.pushHistoryState()
+                            }
+                        },
+                        label = { Text("Portrait") },
+                        leadingIcon = {
+                            Icon(Icons.Default.CropPortrait, contentDescription = null, modifier = Modifier.size(16.dp))
+                        }
+                    )
+                    FilterChip(
+                        selected = !isPortrait,
+                        onClick = {
+                            if (isPortrait) {
+                                viewModel.pageOrientation = PageOrientation.LANDSCAPE
+                                viewModel.computeCurrentLayout()
+                                viewModel.pushHistoryState()
+                            }
+                        },
+                        label = { Text("Landscape") },
+                        leadingIcon = {
+                            Icon(Icons.Default.CropRotate, contentDescription = null, modifier = Modifier.size(16.dp))
+                        }
+                    )
+                }
+            }
+        }
+
+        // 3. Live Order Summary & Paper Savings Banner
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "$totalPhotos PHOTOS TOTAL",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            text = "${pages.size} Sheet${if (pages.size > 1) "s" else ""} Needed",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                val breakdownText = viewModel.batchItems.joinToString(" + ") {
+                    "${it.quantity} pcs ${it.label} (${it.widthCm}×${it.heightCm}cm)"
+                }
+                Text(
+                    text = breakdownText,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.9f)
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCut,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Straight cutting lines guaranteed: Each size sits in uniform rows for 1-cut trimming.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        }
+
+        // 4. Interactive Live Sheet Canvas Preview
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "SHEET LAYOUT PREVIEW",
+                    style = MaterialTheme.typography.labelMedium.copy(letterSpacing = 1.2.sp),
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                val paperW = if (viewModel.pageOrientation == PageOrientation.PORTRAIT) minOf(selectedPaper.widthCm, selectedPaper.heightCm) else maxOf(selectedPaper.widthCm, selectedPaper.heightCm)
+                val paperH = if (viewModel.pageOrientation == PageOrientation.PORTRAIT) maxOf(selectedPaper.widthCm, selectedPaper.heightCm) else minOf(selectedPaper.widthCm, selectedPaper.heightCm)
+                val marginCm = viewModel.marginCm.toFloatOrNull() ?: 0.5f
+                val spacingCm = viewModel.spacingCm.toFloatOrNull() ?: 0.2f
+
+                Box(
+                    modifier = Modifier
+                        .height(230.dp)
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    MixedBatchSheetPreviewCanvas(
+                        pageLayout = pages.firstOrNull(),
+                        paperWidthCm = paperW,
+                        paperHeightCm = paperH,
+                        marginCm = marginCm,
+                        spacingCm = spacingCm,
+                        cuttingGuidesEnabled = viewModel.cuttingGuidesEnabled
+                    )
+                }
+
+                Text(
+                    text = "Paper: ${selectedPaper.name} (${paperW}×${paperH} cm) • Margins: ${marginCm}cm • Spacing: ${spacingCm}cm",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+        }
+
+        // 5. Configured Photo Size Groups
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Photo Size Groups (${viewModel.batchItems.size}):",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold
+            )
+
+            FilledTonalButton(
+                onClick = {
+                    viewModel.addBatchItem("Stamp Size", 2.0f, 2.5f, 4)
+                },
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Add Size", style = MaterialTheme.typography.labelMedium)
+            }
+        }
+
+        // Render each BatchItem Card
+        viewModel.batchItems.forEachIndexed { index, item ->
+            BatchItemCard(
+                index = index,
+                item = item,
+                canDelete = viewModel.batchItems.size > 1,
+                onUpdate = { label, w, h, q ->
+                    viewModel.updateBatchItem(item.id, label, w, h, q)
+                },
+                onDelete = {
+                    viewModel.removeBatchItem(item.id)
+                }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun BatchItemCard(
+    index: Int,
+    item: BatchItem,
+    canDelete: Boolean,
+    onUpdate: (label: String, widthCm: Float, heightCm: Float, quantity: Int) -> Unit,
+    onDelete: () -> Unit
+) {
+    var widthText by remember(item.widthCm) { mutableStateOf(item.widthCm.toString()) }
+    var heightText by remember(item.heightCm) { mutableStateOf(item.heightCm.toString()) }
+    var qtyText by remember(item.quantity) { mutableStateOf(item.quantity.toString()) }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Header Row: Name & Delete Button
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = CircleShape,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "${index + 1}",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = item.label,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                if (canDelete) {
+                    IconButton(
+                        onClick = onDelete,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteOutline,
+                            contentDescription = "Delete this size group",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
+
+            // Quick Presets Chips for this size group
+            val sizePresets = listOf(
+                Triple("India Passport", 3.5f, 4.5f),
+                Triple("Stamp Size", 2.0f, 2.5f),
+                Triple("US Visa (2×2\")", 5.08f, 5.08f),
+                Triple("PAN / Voter Photo", 2.5f, 3.5f)
+            )
+
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                sizePresets.forEach { (name, w, h) ->
+                    val isCurrent = item.widthCm == w && item.heightCm == h
+                    FilterChip(
+                        selected = isCurrent,
+                        onClick = {
+                            widthText = w.toString()
+                            heightText = h.toString()
+                            onUpdate(name, w, h, item.quantity)
+                        },
+                        label = { Text(name, style = MaterialTheme.typography.labelSmall) }
+                    )
+                }
+            }
+
+            // Dimensions Row (Width & Height)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = widthText,
+                    onValueChange = { input ->
+                        widthText = input
+                        val f = input.toFloatOrNull()
+                        if (f != null && f >= 0.5f && f <= 30f) {
+                            onUpdate(item.label, f, item.heightCm, item.quantity)
+                        }
+                    },
+                    label = { Text("Width (cm)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+
+                OutlinedTextField(
+                    value = heightText,
+                    onValueChange = { input ->
+                        heightText = input
+                        val f = input.toFloatOrNull()
+                        if (f != null && f >= 0.5f && f <= 30f) {
+                            onUpdate(item.label, item.widthCm, f, item.quantity)
+                        }
+                    },
+                    label = { Text("Height (cm)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f),
+                    singleLine = true
+                )
+            }
+
+            // Quantity Stepper Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Number of Copies:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilledTonalIconButton(
+                        onClick = {
+                            val newQ = (item.quantity - 1).coerceAtLeast(1)
+                            qtyText = newQ.toString()
+                            onUpdate(item.label, item.widthCm, item.heightCm, newQ)
+                        },
+                        enabled = item.quantity > 1,
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(Icons.Default.Remove, contentDescription = "Decrease", modifier = Modifier.size(16.dp))
+                    }
+
+                    OutlinedTextField(
+                        value = qtyText,
+                        onValueChange = { input ->
+                            qtyText = input
+                            val q = input.toIntOrNull()
+                            if (q != null && q in 1..200) {
+                                onUpdate(item.label, item.widthCm, item.heightCm, q)
+                            }
+                        },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.width(60.dp),
+                        singleLine = true,
+                        textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Center, fontWeight = FontWeight.Bold)
+                    )
+
+                    FilledTonalIconButton(
+                        onClick = {
+                            val newQ = (item.quantity + 1).coerceAtMost(200)
+                            qtyText = newQ.toString()
+                            onUpdate(item.label, item.widthCm, item.heightCm, newQ)
+                        },
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Increase", modifier = Modifier.size(16.dp))
+                    }
+
+                    // Quick buttons
+                    Button(
+                        onClick = {
+                            val newQ = (item.quantity + 4).coerceAtMost(200)
+                            qtyText = newQ.toString()
+                            onUpdate(item.label, item.widthCm, item.heightCm, newQ)
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(36.dp)
+                    ) {
+                        Text("+4", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MixedBatchSheetPreviewCanvas(
+    pageLayout: PageLayout?,
+    paperWidthCm: Float,
+    paperHeightCm: Float,
+    marginCm: Float,
+    spacingCm: Float,
+    cuttingGuidesEnabled: Boolean,
+    modifier: Modifier = Modifier
+) {
+    if (paperWidthCm <= 0f || paperHeightCm <= 0f) return
+
+    Box(
+        modifier = modifier
+            .fillMaxHeight()
+            .aspectRatio(paperWidthCm / paperHeightCm)
+            .clip(RoundedCornerShape(4.dp))
+            .background(Color.White)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+    ) {
+        val strokeColor = MaterialTheme.colorScheme.primary
+        val outlineColor = MaterialTheme.colorScheme.outlineVariant
+
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+            val scale = size.width / paperWidthCm
+
+            val marginPx = marginCm * scale
+
+            // Printable Bounds Margin Guide (light gray dashed line)
+            drawRect(
+                color = outlineColor.copy(alpha = 0.35f),
+                topLeft = Offset(marginPx, marginPx),
+                size = Size(size.width - 2 * marginPx, size.height - 2 * marginPx),
+                style = Stroke(
+                    width = 1f,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 3f), 0f)
+                )
+            )
+
+            if (pageLayout != null) {
+                for (placement in pageLayout.placements) {
+                    val x = placement.xCm * scale
+                    val y = placement.yCm * scale
+                    val w = placement.widthCm * scale
+                    val h = placement.heightCm * scale
+
+                    if (x + w <= size.width + 1f && y + h <= size.height + 1f) {
+                        // Color code based on size
+                        val cellColor = when {
+                            placement.widthCm >= 3.0f && placement.heightCm >= 4.0f -> Color(0xFFFFF3E0) // Light orange for passport
+                            placement.widthCm <= 2.5f && placement.heightCm <= 3.0f -> Color(0xFFF3E5F5) // Light purple for stamp
+                            placement.widthCm >= 4.5f -> Color(0xFFE3F2FD) // Light blue for visa/joint
+                            else -> Color(0xFFE8F5E9) // Light green
+                        }
+
+                        drawRect(
+                            color = cellColor,
+                            topLeft = Offset(x, y),
+                            size = Size(w, h)
+                        )
+
+                        // Draw neat inner border
+                        drawRect(
+                            color = strokeColor.copy(alpha = 0.3f),
+                            topLeft = Offset(x, y),
+                            size = Size(w, h),
+                            style = Stroke(width = 0.8f)
+                        )
+
+                        // Silhouette avatar
+                        val headRadius = (w * 0.16f).coerceAtLeast(3f)
+                        val headX = x + w * 0.5f
+                        val headY = y + h * 0.35f
+                        drawCircle(
+                            color = strokeColor.copy(alpha = 0.35f),
+                            radius = headRadius,
+                            center = Offset(headX, headY)
+                        )
+
+                        // Cutting guides
+                        if (cuttingGuidesEnabled) {
+                            drawRect(
+                                color = Color.Gray.copy(alpha = 0.7f),
+                                topLeft = Offset(x, y),
+                                size = Size(w, h),
+                                style = Stroke(
+                                    width = 0.8f,
+                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(2.5f, 2.5f), 0f)
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

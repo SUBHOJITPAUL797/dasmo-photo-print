@@ -36,6 +36,38 @@ data class BatchItem(
     val photoUri: String? = null
 ) : Serializable
 
+data class PaperSizeSpec(
+    val id: String,
+    val name: String,
+    val widthCm: Float,
+    val heightCm: Float,
+    val description: String = ""
+) : Serializable {
+    companion object {
+        val A4 = PaperSizeSpec("A4", "A4 Sheet", 21.0f, 29.7f, "21.0 × 29.7 cm (Standard)")
+        val PHOTO_4X6 = PaperSizeSpec("4X6", "4×6\" Photo Paper", 10.16f, 15.24f, "10.2 × 15.2 cm (Glossy)")
+        val PHOTO_5X7 = PaperSizeSpec("5X7", "5×7\" Photo Paper", 12.70f, 17.78f, "12.7 × 17.8 cm")
+
+        val DEFAULT_PAPERS = listOf(A4, PHOTO_4X6, PHOTO_5X7)
+    }
+}
+
+data class BatchTemplate(
+    val id: String,
+    val title: String,
+    val totalCount: Int,
+    val description: String,
+    val items: List<BatchItemSpec>
+) : Serializable
+
+data class BatchItemSpec(
+    val label: String,
+    val widthCm: Float,
+    val heightCm: Float,
+    val quantity: Int
+) : Serializable
+
+
 data class JointConfig(
     val photoAUri: String,
     val photoBUri: String,

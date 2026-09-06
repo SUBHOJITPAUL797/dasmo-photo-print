@@ -50,8 +50,14 @@ fun PreviewScreen(
     val pages = viewModel.computedPages
     var currentPageIndex by remember { mutableStateOf(0) }
 
-    val pageSummary = remember(pages, viewModel.quantity) {
-        "${viewModel.quantity} photos distributed across ${pages.size} page(s)"
+    val pageSummary = remember(pages, viewModel.quantity, viewModel.mode, viewModel.batchItems.size) {
+        if (viewModel.mode == ProjectMode.BATCH_PAPER_SAVER) {
+            val total = viewModel.getTotalBatchPhotosCount()
+            val paperName = viewModel.selectedPaperSpec.name
+            "$total mixed photos on ${pages.size} sheet(s) ($paperName)"
+        } else {
+            "${viewModel.quantity} photos distributed across ${pages.size} page(s)"
+        }
     }
 
     Scaffold(
@@ -410,8 +416,10 @@ fun PreviewScreen(
                         .padding(8.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    val pWidth = if (viewModel.pageOrientation == PageOrientation.PORTRAIT) 21.0f else 29.7f
-                    val pHeight = if (viewModel.pageOrientation == PageOrientation.PORTRAIT) 29.7f else 21.0f
+                    val basePaperWidth = viewModel.selectedPaperSpec.widthCm
+                    val basePaperHeight = viewModel.selectedPaperSpec.heightCm
+                    val pWidth = if (viewModel.pageOrientation == PageOrientation.PORTRAIT) minOf(basePaperWidth, basePaperHeight) else maxOf(basePaperWidth, basePaperHeight)
+                    val pHeight = if (viewModel.pageOrientation == PageOrientation.PORTRAIT) maxOf(basePaperWidth, basePaperHeight) else minOf(basePaperWidth, basePaperHeight)
 
                     A4SimulatedSheet(
                         pageLayout = activePage,

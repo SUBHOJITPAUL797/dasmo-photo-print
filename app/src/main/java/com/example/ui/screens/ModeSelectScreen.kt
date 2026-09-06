@@ -288,8 +288,11 @@ fun ModeSelectScreen(
                     .fillMaxWidth()
                     .clickable {
                         viewModel.mode = ProjectMode.BATCH_PAPER_SAVER
-                        viewModel.widthCm = "3.5"
-                        viewModel.heightCm = "4.5"
+                        if (viewModel.batchItems.isEmpty()) {
+                            viewModel.batchItems.add(com.example.domain.model.BatchItem(label = "India Passport", widthCm = 3.5f, heightCm = 4.5f, quantity = 8))
+                            viewModel.batchItems.add(com.example.domain.model.BatchItem(label = "Stamp Size", widthCm = 2.0f, heightCm = 2.5f, quantity = 4))
+                        }
+                        viewModel.computeCurrentLayout()
                         viewModel.currentStep = 2
                     }
                     .testTag("mode_paper_saver_card"),

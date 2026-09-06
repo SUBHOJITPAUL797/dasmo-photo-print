@@ -150,7 +150,8 @@ object LayoutEngine {
 
     /**
      * Compute multi-photo mixed batch layout packing (Paper Saver Mode).
-     * Places different sized photo items (e.g. 4 Passport + 4 Stamp + 2 Joint) on 1 page efficiently.
+     * Uses Shelf-First Packing to ensure all photos of the same height sit in
+     * uniform horizontal rows with continuous straight cutting lines for easy scissor/trimmer cutting.
      */
     fun computeMixedBatchLayout(
         batchItems: List<BatchItem>,
@@ -172,53 +173,54 @@ object LayoutEngine {
 
         var curX = startX
         var curY = startY
-        var rowMaxH = 0f
-        var colIndex = 0
         var rowIndex = 0
+        var maxColsInLayout = 1
 
-        // Expand all items to individual placements
         for (item in batchItems) {
-            for (i in 0 until item.quantity) {
-                val itemW = item.widthCm
-                val itemH = item.heightCm
+            val itemW = item.widthCm
+            val itemH = item.heightCm
+            if (item.quantity <= 0 || itemW <= 0f || itemH <= 0f) continue
 
-                // Check if fits horizontally in current row
-                if (curX + itemW > startX + usableW && curX > startX) {
-                    // Move to next row
+            // Max columns that fit in one row for this item size
+            val colsForItem = maxOf(1, floor((usableW + settings.spacingCm) / (itemW + settings.spacingCm)).toInt())
+            if (colsForItem > maxColsInLayout) {
+                maxColsInLayout = colsForItem
+            }
+
+            var colInCurrentRow = 0
+
+            for (i in 0 until item.quantity) {
+                // If current row is full horizontally, move to next row
+                if (colInCurrentRow >= colsForItem || (curX + itemW > startX + usableW && colInCurrentRow > 0)) {
                     curX = startX
-                    curY += rowMaxH + settings.spacingCm
-                    rowMaxH = 0f
-                    colIndex = 0
+                    curY += itemH + settings.spacingCm
+                    colInCurrentRow = 0
                     rowIndex++
                 }
 
-                // Check if fits vertically on current page
-                if (curY + itemH > startY + usableH) {
-                    // Save current page layout and start new page
-                    if (currentPagePlacements.isNotEmpty()) {
-                        pages.add(
-                            PageLayout(
-                                pageIndex = currentPageIndex++,
-                                placements = currentPagePlacements,
-                                isRotated = false,
-                                cols = colIndex + 1,
-                                rows = rowIndex + 1,
-                                cellWidthCm = itemW,
-                                cellHeightCm = itemH
-                            )
+                // If current item overflows vertically on this page, start new page
+                if (curY + itemH > startY + usableH && currentPagePlacements.isNotEmpty()) {
+                    pages.add(
+                        PageLayout(
+                            pageIndex = currentPageIndex++,
+                            placements = currentPagePlacements,
+                            isRotated = false,
+                            cols = maxColsInLayout,
+                            rows = rowIndex,
+                            cellWidthCm = itemW,
+                            cellHeightCm = itemH
                         )
-                        currentPagePlacements = mutableListOf()
-                    }
+                    )
+                    currentPagePlacements = mutableListOf()
                     curX = startX
                     curY = startY
-                    rowMaxH = 0f
-                    colIndex = 0
+                    colInCurrentRow = 0
                     rowIndex = 0
                 }
 
                 currentPagePlacements.add(
                     UnitPlacement(
-                        colIndex = colIndex,
+                        colIndex = colInCurrentRow,
                         rowIndex = rowIndex,
                         xCm = curX,
                         yCm = curY,
@@ -229,10 +231,15 @@ object LayoutEngine {
                 )
 
                 curX += itemW + settings.spacingCm
-                if (itemH > rowMaxH) {
-                    rowMaxH = itemH
-                }
-                colIndex++
+                colInCurrentRow++
+            }
+
+            // After finishing all quantities of this item, advance to a fresh shelf for the next item size
+            // This guarantees straight-line horizontal cutting lines for each size group!
+            if (colInCurrentRow > 0) {
+                curX = startX
+                curY += itemH + settings.spacingCm
+                rowIndex++
             }
         }
 
@@ -242,8 +249,8 @@ object LayoutEngine {
                     pageIndex = currentPageIndex,
                     placements = currentPagePlacements,
                     isRotated = false,
-                    cols = maxOf(1, colIndex),
-                    rows = maxOf(1, rowIndex + 1),
+                    cols = maxColsInLayout,
+                    rows = maxOf(1, rowIndex),
                     cellWidthCm = batchItems.firstOrNull()?.widthCm ?: 3.5f,
                     cellHeightCm = batchItems.firstOrNull()?.heightCm ?: 4.5f
                 )
