@@ -22,6 +22,7 @@ class HistoryUndoRedoTest {
 
     private val fakeDao = object : ProjectDao {
         override fun getAllProjects(): Flow<List<Project>> = flowOf(emptyList())
+        override fun searchProjects(query: String): Flow<List<Project>> = flowOf(emptyList())
         override suspend fun insertProject(project: Project): Long = 1L
         override suspend fun deleteProject(project: Project) {}
         override suspend fun deleteProjectById(id: Long) {}
