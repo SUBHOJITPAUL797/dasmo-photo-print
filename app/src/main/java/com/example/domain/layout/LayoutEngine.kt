@@ -174,41 +174,46 @@ object LayoutEngine {
         var curX = startX
         var curY = startY
         var rowIndex = 0
-        var maxColsInLayout = 1
+        var colInCurrentRow = 0
+        var curRowMaxH = 0f
 
         for (item in batchItems) {
             val itemW = item.widthCm
             val itemH = item.heightCm
             if (item.quantity <= 0 || itemW <= 0f || itemH <= 0f) continue
 
-            // Max columns that fit in one row for this item size
-            val colsForItem = maxOf(1, floor((usableW + settings.spacingCm) / (itemW + settings.spacingCm)).toInt())
-            if (colsForItem > maxColsInLayout) {
-                maxColsInLayout = colsForItem
+            // If compactPacking is false, always force each size group onto a brand new shelf
+            if (!settings.compactPacking && colInCurrentRow > 0) {
+                curX = startX
+                curY += curRowMaxH + settings.spacingCm
+                colInCurrentRow = 0
+                rowIndex++
+                curRowMaxH = 0f
             }
 
-            var colInCurrentRow = 0
-
             for (i in 0 until item.quantity) {
-                // If current row is full horizontally, move to next row
-                if (colInCurrentRow >= colsForItem || (curX + itemW > startX + usableW && colInCurrentRow > 0)) {
+                // If item exceeds usable width in current row, wrap to next row
+                if (colInCurrentRow > 0 && curX + itemW > startX + usableW + 0.001f) {
                     curX = startX
-                    curY += itemH + settings.spacingCm
+                    curY += curRowMaxH + settings.spacingCm
                     colInCurrentRow = 0
                     rowIndex++
+                    curRowMaxH = 0f
                 }
 
-                // If current item overflows vertically on this page, start new page
-                if (curY + itemH > startY + usableH && currentPagePlacements.isNotEmpty()) {
+                // If item exceeds usable height on current page, wrap to next page
+                if (currentPagePlacements.isNotEmpty() && curY + itemH > startY + usableH + 0.001f) {
+                    val pageCols = currentPagePlacements.groupBy { it.rowIndex }.values.maxOfOrNull { it.size } ?: 1
+                    val pageRows = (currentPagePlacements.maxOfOrNull { it.rowIndex } ?: 0) + 1
                     pages.add(
                         PageLayout(
                             pageIndex = currentPageIndex++,
                             placements = currentPagePlacements,
                             isRotated = false,
-                            cols = maxColsInLayout,
-                            rows = rowIndex,
-                            cellWidthCm = itemW,
-                            cellHeightCm = itemH
+                            cols = pageCols,
+                            rows = pageRows,
+                            cellWidthCm = batchItems.firstOrNull()?.widthCm ?: 3.5f,
+                            cellHeightCm = batchItems.firstOrNull()?.heightCm ?: 4.5f
                         )
                     )
                     currentPagePlacements = mutableListOf()
@@ -216,6 +221,7 @@ object LayoutEngine {
                     curY = startY
                     colInCurrentRow = 0
                     rowIndex = 0
+                    curRowMaxH = 0f
                 }
 
                 currentPagePlacements.add(
@@ -230,27 +236,22 @@ object LayoutEngine {
                     )
                 )
 
+                curRowMaxH = maxOf(curRowMaxH, itemH)
                 curX += itemW + settings.spacingCm
                 colInCurrentRow++
-            }
-
-            // After finishing all quantities of this item, advance to a fresh shelf for the next item size
-            // This guarantees straight-line horizontal cutting lines for each size group!
-            if (colInCurrentRow > 0) {
-                curX = startX
-                curY += itemH + settings.spacingCm
-                rowIndex++
             }
         }
 
         if (currentPagePlacements.isNotEmpty()) {
+            val pageCols = currentPagePlacements.groupBy { it.rowIndex }.values.maxOfOrNull { it.size } ?: 1
+            val pageRows = (currentPagePlacements.maxOfOrNull { it.rowIndex } ?: 0) + 1
             pages.add(
                 PageLayout(
                     pageIndex = currentPageIndex,
                     placements = currentPagePlacements,
                     isRotated = false,
-                    cols = maxColsInLayout,
-                    rows = maxOf(1, rowIndex),
+                    cols = pageCols,
+                    rows = pageRows,
                     cellWidthCm = batchItems.firstOrNull()?.widthCm ?: 3.5f,
                     cellHeightCm = batchItems.firstOrNull()?.heightCm ?: 4.5f
                 )

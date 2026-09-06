@@ -47,28 +47,25 @@ class MixedBatchLayoutTest {
         }
 
         // 5. Verify row distribution and straight cutting lines
-        // Row 0 should contain 5 Passports (usable width 20cm fits 5 * 3.5 + 4 * 0.2 = 18.3cm)
+        // 5. Verify intelligent compact row distribution:
+        // Row 0 contains 5 Passports (usable width 20cm fits 5 * 3.5 + 4 * 0.2 = 18.3cm)
         val row0 = placements.filter { it.rowIndex == 0 }
         assertEquals("Row 0 must contain 5 Passports", 5, row0.size)
         val yRow0 = row0[0].yCm
         assertTrue("All items in Row 0 must share identical Y coordinate for straight-line cutting",
             row0.all { Math.abs(it.yCm - yRow0) < 0.001f })
 
-        // Row 1 should contain remaining 3 Passports
+        // Row 1 intelligently fills remaining space: contains remaining 3 Passports + all 4 Stamps = 7 photos!
         val row1 = placements.filter { it.rowIndex == 1 }
-        assertEquals("Row 1 must contain 3 Passports", 3, row1.size)
+        assertEquals("Row 1 must intelligently pack remaining 3 Passports + 4 Stamps (7 photos)", 7, row1.size)
         val yRow1 = row1[0].yCm
         assertTrue("Row 1 must be below Row 0", yRow1 > yRow0 + 4.5f)
-        assertTrue("All items in Row 1 must share identical Y coordinate for straight-line cutting",
+        assertTrue("All items in Row 1 must share identical top Y coordinate for straight cutting",
             row1.all { Math.abs(it.yCm - yRow1) < 0.001f })
 
-        // Row 2 should contain 4 Stamps on a fresh shelf
-        val row2 = placements.filter { it.rowIndex == 2 }
-        assertEquals("Row 2 must contain 4 Stamps", 4, row2.size)
-        val yRow2 = row2[0].yCm
-        assertTrue("Row 2 must be below Row 1", yRow2 > yRow1 + 4.5f)
-        assertTrue("All items in Row 2 must share identical Y coordinate for straight-line cutting",
-            row2.all { Math.abs(it.yCm - yRow2) < 0.001f })
+        // Total rows used must be ONLY 2 ROWS (saves maximum paper!)
+        val totalRows = placements.map { it.rowIndex }.distinct().size
+        assertEquals("Intelligent compact packing must only use 2 rows", 2, totalRows)
 
         // 6. Verify all items stay strictly within margins
         for (p in placements) {
@@ -77,6 +74,31 @@ class MixedBatchLayoutTest {
             assertTrue("Placement Y (${p.yCm}) exceeds margin top", p.yCm >= 0.5f - 0.001f)
             assertTrue("Placement bottom (${p.yCm + p.heightCm}) exceeds usable page height", p.yCm + p.heightCm <= 29.2f + 0.001f)
         }
+    }
+
+    @Test
+    fun testSeparatedShelvesWhenCompactPackingDisabled() {
+        val batchItems = listOf(
+            BatchItem(label = "India Passport", widthCm = 3.5f, heightCm = 4.5f, quantity = 8),
+            BatchItem(label = "Stamp Size", widthCm = 2.0f, heightCm = 2.5f, quantity = 4)
+        )
+
+        val settings = LayoutSettings(
+            pageWidthCm = 21.0f,
+            pageHeightCm = 29.7f,
+            marginCm = 0.5f,
+            spacingCm = 0.2f,
+            compactPacking = false // Disable compact packing
+        )
+
+        val pages = LayoutEngine.computeMixedBatchLayout(batchItems, settings)
+        assertEquals(1, pages.size)
+        val placements = pages[0].placements
+        assertEquals(12, placements.size)
+
+        // With compact packing disabled, it should use 3 separate rows
+        val totalRows = placements.map { it.rowIndex }.distinct().size
+        assertEquals("Disabled compact packing must use 3 separate shelves", 3, totalRows)
     }
 
     @Test

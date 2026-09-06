@@ -1623,6 +1623,26 @@ fun MixedBatchStudioContent(
                             modifier = Modifier.fillMaxWidth()
                         )
 
+                        // Fill Empty Row Space Toggle (Compact Paper Saver)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Fill Empty Row Space", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text("Intelligently packs photos into remaining empty space of previous rows to save maximum paper.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                checked = viewModel.compactPacking,
+                                onCheckedChange = {
+                                    viewModel.compactPacking = it
+                                    viewModel.computeCurrentLayout()
+                                    viewModel.pushHistoryState()
+                                }
+                            )
+                        }
+
                         // Cutting outline Toggle
                         Row(
                             modifier = Modifier.fillMaxWidth(),

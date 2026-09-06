@@ -87,6 +87,7 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
     // Printer Alignment Calibration Offsets (mm)
     var topOffsetMm by mutableStateOf("0.0")
     var leftOffsetMm by mutableStateOf("0.0")
+    var compactPacking by mutableStateOf(true)
 
     // Cyber Cafe Customer Billing Fields
     var customerName by mutableStateOf("")
@@ -444,7 +445,8 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
             cuttingGuideColor = cuttingGuideColor,
             allowRotation = finalAllowRotation,
             topOffsetMm = topOff,
-            leftOffsetMm = leftOff
+            leftOffsetMm = leftOff,
+            compactPacking = compactPacking
         )
 
         try {

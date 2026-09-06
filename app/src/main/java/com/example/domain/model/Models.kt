@@ -89,7 +89,8 @@ data class LayoutSettings(
     val cuttingGuideColor: Int = 0xFF000000.toInt(),
     val allowRotation: Boolean = true,
     val topOffsetMm: Float = 0.0f,
-    val leftOffsetMm: Float = 0.0f
+    val leftOffsetMm: Float = 0.0f,
+    val compactPacking: Boolean = true
 ) : Serializable
 
 @Entity(tableName = "projects")
