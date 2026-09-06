@@ -1297,6 +1297,7 @@ fun MixedBatchStudioContent(
     val totalPhotos = viewModel.getTotalBatchPhotosCount()
     val pages = viewModel.computedPages
     val selectedPaper = viewModel.selectedPaperSpec
+    var isAdvancedBatchExpanded by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1429,22 +1430,25 @@ fun MixedBatchStudioContent(
                         },
                         label = { Text("Landscape") },
                         leadingIcon = {
-                            Icon(Icons.Default.CropRotate, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.CropLandscape, contentDescription = null, modifier = Modifier.size(16.dp))
                         }
                     )
                 }
             }
         }
 
-        // 3. Live Order Summary & Paper Savings Banner
+        // 3. Order Summary & Cutting Guarantee Banner
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
             )
         ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1539,7 +1543,10 @@ fun MixedBatchStudioContent(
                         paperHeightCm = paperH,
                         marginCm = marginCm,
                         spacingCm = spacingCm,
-                        cuttingGuidesEnabled = viewModel.cuttingGuidesEnabled
+                        cuttingGuidesEnabled = viewModel.cuttingGuidesEnabled,
+                        cuttingGuideColor = viewModel.cuttingGuideColor,
+                        cuttingGuideStyle = viewModel.cuttingGuideStyle,
+                        cuttingGuideThicknessPt = viewModel.cuttingGuideThicknessPt
                     )
                 }
 
@@ -1549,6 +1556,171 @@ fun MixedBatchStudioContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     modifier = Modifier.padding(top = 6.dp)
                 )
+            }
+        }
+
+        // 5. Border Margins, Gap Spacing & Cutting Guides Accordion
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            )
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isAdvancedBatchExpanded = !isAdvancedBatchExpanded },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Margins, Gap Spacing & Cutting Guides",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    IconButton(onClick = { isAdvancedBatchExpanded = !isAdvancedBatchExpanded }) {
+                        Icon(
+                            imageVector = if (isAdvancedBatchExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null
+                        )
+                    }
+                }
+
+                AnimatedVisibility(visible = isAdvancedBatchExpanded) {
+                    Column(
+                        modifier = Modifier.padding(top = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        // Spacing gap Config
+                        OutlinedTextField(
+                            value = viewModel.spacingCm,
+                            onValueChange = {
+                                viewModel.spacingCm = it
+                                viewModel.computeCurrentLayout()
+                                viewModel.pushHistoryStateDebounced()
+                            },
+                            label = { Text("Gap between photos (cm)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        // Page Margins Config
+                        OutlinedTextField(
+                            value = viewModel.marginCm,
+                            onValueChange = {
+                                viewModel.marginCm = it
+                                viewModel.computeCurrentLayout()
+                                viewModel.pushHistoryStateDebounced()
+                            },
+                            label = { Text("Paper Margins (cm)") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        // Cutting outline Toggle
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Cutting Guide Borders", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text("Draw boundary lines around photos for scissor/guillotine cutting.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                checked = viewModel.cuttingGuidesEnabled,
+                                onCheckedChange = {
+                                    viewModel.cuttingGuidesEnabled = it
+                                    viewModel.pushHistoryState()
+                                }
+                            )
+                        }
+
+                        if (viewModel.cuttingGuidesEnabled) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Border Color", style = MaterialTheme.typography.bodyMedium)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    val colors = listOf(
+                                        "Black" to 0xFF000000.toInt(),
+                                        "Gray" to 0xFF999999.toInt(),
+                                        "Red" to 0xFFFF0000.toInt(),
+                                        "Blue" to 0xFF0000FF.toInt()
+                                    )
+                                    colors.forEach { (_, colorInt) ->
+                                        Box(
+                                            modifier = Modifier
+                                                .padding(horizontal = 4.dp)
+                                                .size(24.dp)
+                                                .background(
+                                                    Color(colorInt),
+                                                    CircleShape
+                                                )
+                                                .border(
+                                                    if (viewModel.cuttingGuideColor == colorInt) 2.dp else 1.dp,
+                                                    if (viewModel.cuttingGuideColor == colorInt) MaterialTheme.colorScheme.primary else Color.Gray,
+                                                    CircleShape
+                                                )
+                                                .clickable {
+                                                    viewModel.cuttingGuideColor = colorInt
+                                                    viewModel.pushHistoryState()
+                                                }
+                                        )
+                                    }
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Border Style", style = MaterialTheme.typography.bodyMedium)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    OutlinedButton(
+                                        onClick = { viewModel.cuttingGuideStyle = "dashed"; viewModel.pushHistoryState() },
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = if (viewModel.cuttingGuideStyle == "dashed") MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                                        )
+                                    ) { Text("Dashed") }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    OutlinedButton(
+                                        onClick = { viewModel.cuttingGuideStyle = "solid"; viewModel.pushHistoryState() },
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            containerColor = if (viewModel.cuttingGuideStyle == "solid") MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                                        )
+                                    ) { Text("Solid") }
+                                }
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("Border Thickness", style = MaterialTheme.typography.bodyMedium)
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Slider(
+                                    value = viewModel.cuttingGuideThicknessPt,
+                                    onValueChange = { viewModel.cuttingGuideThicknessPt = it },
+                                    onValueChangeFinished = { viewModel.pushHistoryState() },
+                                    valueRange = 0.5f..5.0f,
+                                    steps = 8,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -1805,6 +1977,9 @@ fun MixedBatchSheetPreviewCanvas(
     marginCm: Float,
     spacingCm: Float,
     cuttingGuidesEnabled: Boolean,
+    cuttingGuideColor: Int = 0xFF999999.toInt(),
+    cuttingGuideStyle: String = "dashed",
+    cuttingGuideThicknessPt: Float = 1.0f,
     modifier: Modifier = Modifier
 ) {
     if (paperWidthCm <= 0f || paperHeightCm <= 0f) return
@@ -1876,15 +2051,17 @@ fun MixedBatchSheetPreviewCanvas(
                             center = Offset(headX, headY)
                         )
 
-                        // Cutting guides
+                        // Cutting guides with user-selected color, style (dashed/solid), and thickness
                         if (cuttingGuidesEnabled) {
+                            val strokeWidthPx = (cuttingGuideThicknessPt * (2.54f / 72f) * scale).coerceAtLeast(0.8f)
+                            val dashUnitPx = (3f * (2.54f / 72f) * scale).coerceAtLeast(2.5f)
                             drawRect(
-                                color = Color.Gray.copy(alpha = 0.7f),
+                                color = Color(cuttingGuideColor),
                                 topLeft = Offset(x, y),
                                 size = Size(w, h),
                                 style = Stroke(
-                                    width = 0.8f,
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(2.5f, 2.5f), 0f)
+                                    width = strokeWidthPx,
+                                    pathEffect = if (cuttingGuideStyle == "dashed") PathEffect.dashPathEffect(floatArrayOf(dashUnitPx, dashUnitPx), 0f) else null
                                 )
                             )
                         }

@@ -99,6 +99,89 @@ class MixedBatchLayoutTest {
     }
 
     @Test
+    fun testAudit_NoClashing_ExactGaps_And19PassportsPlus2Stamps() {
+        // Test custom scenario: 19 Passports (3.5x4.5cm) + 2 Stamps (2.0x2.5cm)
+        // With custom margins = 0.6cm and custom gap spacing = 0.3cm
+        val batchItems = listOf(
+            BatchItem(label = "India Passport", widthCm = 3.5f, heightCm = 4.5f, quantity = 19),
+            BatchItem(label = "Stamp Size", widthCm = 2.0f, heightCm = 2.5f, quantity = 2)
+        )
+
+        val spacing = 0.3f
+        val margin = 0.6f
+        val settings = LayoutSettings(
+            pageWidthCm = 21.0f,
+            pageHeightCm = 29.7f,
+            marginCm = margin,
+            spacingCm = spacing
+        )
+
+        val pages = LayoutEngine.computeMixedBatchLayout(batchItems, settings)
+
+        // 1. Total photos must be exactly 21 (19 + 2)
+        val allPlacements = pages.flatMap { it.placements }
+        assertEquals("Total photos across all pages must be 21", 21, allPlacements.size)
+
+        // 2. Comprehensive Anti-Collision & Gap Audit per page
+        for (page in pages) {
+            val placements = page.placements
+
+            // Verify bounds within page margins
+            for (p in placements) {
+                assertTrue("Left margin violation", p.xCm >= margin - 0.001f)
+                assertTrue("Top margin violation", p.yCm >= margin - 0.001f)
+                assertTrue("Right margin violation", p.xCm + p.widthCm <= settings.pageWidthCm - margin + 0.001f)
+                assertTrue("Bottom margin violation", p.yCm + p.heightCm <= settings.pageHeightCm - margin + 0.001f)
+            }
+
+            // Pairwise Collision Audit: Verify NO TWO PHOTOS OVERLAP
+            for (i in 0 until placements.size) {
+                for (j in i + 1 until placements.size) {
+                    val a = placements[i]
+                    val b = placements[j]
+
+                    val aRight = a.xCm + a.widthCm
+                    val aBottom = a.yCm + a.heightCm
+                    val bRight = b.xCm + b.widthCm
+                    val bBottom = b.yCm + b.heightCm
+
+                    // They must not intersect
+                    val horizontalOverlap = (a.xCm < bRight - 0.001f) && (aRight > b.xCm + 0.001f)
+                    val verticalOverlap = (a.yCm < bBottom - 0.001f) && (aBottom > b.yCm + 0.001f)
+                    val collides = horizontalOverlap && verticalOverlap
+
+                    assertFalse("Photos at index $i and $j COLLIDE! A: [${a.xCm}, ${a.yCm}, $aRight, $aBottom] vs B: [${b.xCm}, ${b.yCm}, $bRight, $bBottom]", collides)
+                }
+            }
+
+            // Horizontal Gap Audit: Adjacent photos in same row must have AT LEAST spacingCm gap
+            val rows = placements.groupBy { it.rowIndex }
+            for ((rowIndex, rowPlacements) in rows) {
+                val sorted = rowPlacements.sortedBy { it.xCm }
+                for (k in 0 until sorted.size - 1) {
+                    val currentRight = sorted[k].xCm + sorted[k].widthCm
+                    val nextLeft = sorted[k + 1].xCm
+                    val actualGap = nextLeft - currentRight
+                    assertTrue("Horizontal gap in row $rowIndex is smaller than requested ($actualGap < $spacing)", actualGap >= spacing - 0.001f)
+                }
+            }
+
+            // Vertical Shelf Gap Audit: Adjacent rows must have AT LEAST spacingCm vertical gap
+            val rowIndices = rows.keys.sorted()
+            for (r in 0 until rowIndices.size - 1) {
+                val rowA = rows[rowIndices[r]]!!
+                val rowB = rows[rowIndices[r + 1]]!!
+
+                val rowABottom = rowA.maxOf { it.yCm + it.heightCm }
+                val rowBTop = rowB.minOf { it.yCm }
+                val verticalGap = rowBTop - rowABottom
+
+                assertTrue("Vertical gap between row ${rowIndices[r]} and ${rowIndices[r+1]} is smaller than requested ($verticalGap < $spacing)", verticalGap >= spacing - 0.001f)
+            }
+        }
+    }
+
+    @Test
     fun testEmptyBatchReturnsEmpty() {
         val settings = LayoutSettings()
         val pages = LayoutEngine.computeMixedBatchLayout(emptyList(), settings)
