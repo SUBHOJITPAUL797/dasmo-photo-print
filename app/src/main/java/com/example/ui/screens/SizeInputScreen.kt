@@ -179,6 +179,10 @@ fun SizeInputScreen(
                     heightStr = viewModel.heightCm,
                     spacingStr = viewModel.spacingCm,
                     cuttingGuidesEnabled = viewModel.cuttingGuidesEnabled,
+                    cuttingGuideColor = viewModel.cuttingGuideColor,
+                    cuttingGuideStyle = viewModel.cuttingGuideStyle,
+                    cuttingGuideThicknessPt = viewModel.cuttingGuideThicknessPt,
+                    paperSpec = viewModel.selectedPaperSpec,
                     marginStr = viewModel.marginCm,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -325,6 +329,35 @@ fun SizeInputScreen(
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall
                     )
+                }
+
+                // Paper Format Selection for Standard Modes
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "Paper Sheet Format:",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        PaperSizeSpec.DEFAULT_PAPERS.forEach { paper ->
+                            FilterChip(
+                                selected = viewModel.selectedPaperSpec.id == paper.id,
+                                onClick = {
+                                    viewModel.selectedPaperSpec = paper
+                                    viewModel.pushHistoryState()
+                                },
+                                label = { Text(paper.name) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(16.dp))
+                                }
+                            )
+                        }
+                    }
                 }
             }
 
@@ -473,32 +506,45 @@ fun SizeInputScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text("Border Color", style = MaterialTheme.typography.bodyMedium)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
                                     val colors = listOf(
-                                        "Black" to 0xFF000000.toInt(),
-                                        "Gray" to 0xFF999999.toInt(),
-                                        "Red" to 0xFFFF0000.toInt(),
-                                        "Blue" to 0xFF0000FF.toInt()
+                                        "Pitch Black" to 0xFF000000.toInt(),
+                                        "Dark Gray" to 0xFF424242.toInt(),
+                                        "Light Gray" to 0xFF9E9E9E.toInt(),
+                                        "Navy Blue" to 0xFF1A56DB.toInt(),
+                                        "Crimson Red" to 0xFFD32F2F.toInt(),
+                                        "Forest Green" to 0xFF2E7D32.toInt()
                                     )
                                     colors.forEach { (name, colorInt) ->
-                                        androidx.compose.foundation.layout.Box(
+                                        val isSelected = viewModel.cuttingGuideColor == colorInt
+                                        Box(
                                             modifier = Modifier
-                                                .padding(horizontal = 4.dp)
-                                                .size(24.dp)
-                                                .background(
-                                                    androidx.compose.ui.graphics.Color(colorInt),
-                                                    androidx.compose.foundation.shape.CircleShape
-                                                )
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(colorInt))
                                                 .border(
-                                                    if (viewModel.cuttingGuideColor == colorInt) 2.dp else 1.dp,
-                                                    if (viewModel.cuttingGuideColor == colorInt) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Gray,
-                                                    androidx.compose.foundation.shape.CircleShape
+                                                    if (isSelected) 2.5.dp else 1.dp,
+                                                    if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f),
+                                                    CircleShape
                                                 )
                                                 .clickable {
                                                     viewModel.cuttingGuideColor = colorInt
                                                     viewModel.pushHistoryState()
-                                                }
-                                        )
+                                                },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (isSelected) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = name,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -575,6 +621,10 @@ fun DimensionPreview(
     heightStr: String,
     spacingStr: String,
     cuttingGuidesEnabled: Boolean,
+    cuttingGuideColor: Int = 0xFF000000.toInt(),
+    cuttingGuideStyle: String = "dashed",
+    cuttingGuideThicknessPt: Float = 1.0f,
+    paperSpec: PaperSizeSpec = PaperSizeSpec.A4,
     marginStr: String,
     modifier: Modifier = Modifier
 ) {
@@ -587,7 +637,7 @@ fun DimensionPreview(
     val spacing = spacingStr.toFloatOrNull() ?: 0.2f
     val margin = marginStr.toFloatOrNull() ?: 1.0f
 
-    var selectedTab by remember { mutableStateOf(0) } // 0 = Single Unit Spec, 1 = A4 Sheet Grid Spacing
+    var selectedTab by remember { mutableStateOf(0) } // 0 = Single Unit Spec, 1 = Sheet Grid Spacing
 
     Card(
         modifier = modifier
@@ -620,7 +670,7 @@ fun DimensionPreview(
                 modifier = Modifier.padding(bottom = 12.dp)
             )
 
-            // Dynamic Tab Selector for Single Spec vs A4 Grid Spacing
+            // Dynamic Tab Selector for Single Spec vs Sheet Grid Spacing
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -629,7 +679,7 @@ fun DimensionPreview(
                     .padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                listOf("Single Unit Spec", "A4 Sheet Grid Spacing").forEachIndexed { index, title ->
+                listOf("Single Unit Spec", "${paperSpec.name} Grid").forEachIndexed { index, title ->
                     val isSelected = selectedTab == index
                     Box(
                         modifier = Modifier
@@ -671,8 +721,8 @@ fun DimensionPreview(
                             .clip(RoundedCornerShape(12.dp))
                             .background(MaterialTheme.colorScheme.surface)
                             .border(
-                                width = 2.dp,
-                                color = MaterialTheme.colorScheme.primary,
+                                width = if (cuttingGuidesEnabled) (cuttingGuideThicknessPt * 1.2f).coerceIn(1.5f, 4f).dp else 1.dp,
+                                color = if (cuttingGuidesEnabled) Color(cuttingGuideColor) else MaterialTheme.colorScheme.outlineVariant,
                                 shape = RoundedCornerShape(12.dp)
                             )
                     ) {
@@ -685,13 +735,18 @@ fun DimensionPreview(
                         }
                     }
                 } else {
-                    // Interactive A4 Sheet Grid preview showing precise Spacing and Cutting Guides
+                    // Interactive Sheet Grid preview showing precise Spacing and Cutting Guides
                     A4SheetPreviewCanvas(
                         validW = validW,
                         validH = validH,
                         spacing = spacing,
                         margin = margin,
                         cuttingGuidesEnabled = cuttingGuidesEnabled,
+                        cuttingGuideColor = cuttingGuideColor,
+                        cuttingGuideStyle = cuttingGuideStyle,
+                        cuttingGuideThicknessPt = cuttingGuideThicknessPt,
+                        paperWidthCm = paperSpec.widthCm,
+                        paperHeightCm = paperSpec.heightCm,
                         mode = mode
                     )
                 }
@@ -777,11 +832,16 @@ fun A4SheetPreviewCanvas(
     spacing: Float,
     margin: Float,
     cuttingGuidesEnabled: Boolean,
+    cuttingGuideColor: Int = 0xFF000000.toInt(),
+    cuttingGuideStyle: String = "dashed",
+    cuttingGuideThicknessPt: Float = 1.0f,
+    paperWidthCm: Float = 21.0f,
+    paperHeightCm: Float = 29.7f,
     mode: ProjectMode,
     modifier: Modifier = Modifier
 ) {
-    val a4WidthCm = 21.0f
-    val a4HeightCm = 29.7f
+    val a4WidthCm = paperWidthCm
+    val a4HeightCm = paperHeightCm
 
     Box(
         modifier = modifier
@@ -965,13 +1025,15 @@ fun A4SheetPreviewCanvas(
 
                         // Draw Cutting Guides Borders if checked
                         if (cuttingGuidesEnabled) {
+                            val strokeWidthPx = (cuttingGuideThicknessPt * (2.54f / 72f) * scale).coerceAtLeast(0.8f)
+                            val dashUnitPx = (3f * (2.54f / 72f) * scale).coerceAtLeast(2.5f)
                             drawRect(
-                                color = Color.Gray.copy(alpha = 0.7f),
+                                color = Color(cuttingGuideColor),
                                 topLeft = Offset(x, y),
                                 size = Size(photoWPx, photoHPx),
                                 style = Stroke(
-                                    width = 0.8f,
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 3f), 0f)
+                                    width = strokeWidthPx,
+                                    pathEffect = if (cuttingGuideStyle == "dashed") PathEffect.dashPathEffect(floatArrayOf(dashUnitPx, dashUnitPx), 0f) else null
                                 )
                             )
                         }
@@ -1669,32 +1731,45 @@ fun MixedBatchStudioContent(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text("Border Color", style = MaterialTheme.typography.bodyMedium)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
                                     val colors = listOf(
-                                        "Black" to 0xFF000000.toInt(),
-                                        "Gray" to 0xFF999999.toInt(),
-                                        "Red" to 0xFFFF0000.toInt(),
-                                        "Blue" to 0xFF0000FF.toInt()
+                                        "Pitch Black" to 0xFF000000.toInt(),
+                                        "Dark Gray" to 0xFF424242.toInt(),
+                                        "Light Gray" to 0xFF9E9E9E.toInt(),
+                                        "Navy Blue" to 0xFF1A56DB.toInt(),
+                                        "Crimson Red" to 0xFFD32F2F.toInt(),
+                                        "Forest Green" to 0xFF2E7D32.toInt()
                                     )
-                                    colors.forEach { (_, colorInt) ->
+                                    colors.forEach { (name, colorInt) ->
+                                        val isSelected = viewModel.cuttingGuideColor == colorInt
                                         Box(
                                             modifier = Modifier
-                                                .padding(horizontal = 4.dp)
-                                                .size(24.dp)
-                                                .background(
-                                                    Color(colorInt),
-                                                    CircleShape
-                                                )
+                                                .size(28.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(colorInt))
                                                 .border(
-                                                    if (viewModel.cuttingGuideColor == colorInt) 2.dp else 1.dp,
-                                                    if (viewModel.cuttingGuideColor == colorInt) MaterialTheme.colorScheme.primary else Color.Gray,
+                                                    if (isSelected) 2.5.dp else 1.dp,
+                                                    if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.5f),
                                                     CircleShape
                                                 )
                                                 .clickable {
                                                     viewModel.cuttingGuideColor = colorInt
                                                     viewModel.pushHistoryState()
-                                                }
-                                        )
+                                                },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (isSelected) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = name,
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }

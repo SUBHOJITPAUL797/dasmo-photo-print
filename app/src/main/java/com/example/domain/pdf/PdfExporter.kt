@@ -116,16 +116,23 @@ object PdfExporter {
                         canvas.translate(xPt + cellWPt / 2f, yPt + cellHPt / 2f)
                         canvas.rotate(90f)
                         val dstRect = RectF(-cellHPt / 2f, -cellWPt / 2f, cellHPt / 2f, cellWPt / 2f)
-                        canvas.drawBitmap(activeBmp, null, dstRect, paint)
+                        com.example.util.BitmapUtils.drawWithCenterCrop(canvas, activeBmp, dstRect, paint)
                         canvas.restore()
                     } else {
                         val dstRect = RectF(xPt, yPt, xPt + cellWPt, yPt + cellHPt)
-                        canvas.drawBitmap(activeBmp, null, dstRect, paint)
+                        com.example.util.BitmapUtils.drawWithCenterCrop(canvas, activeBmp, dstRect, paint)
                     }
 
-                    // Render cutting guides if enabled
-                    if (settings.cuttingGuidesEnabled) {
-                        canvas.drawRect(xPt, yPt, xPt + cellWPt, yPt + cellHPt, borderPaint)
+                    // Render cutting guides if enabled (inset by half stroke so border stays strictly on the photo edge and never fills the white gap)
+                    if (settings.cuttingGuidesEnabled && settings.cuttingGuideThicknessPt > 0f) {
+                        val halfStroke = (settings.cuttingGuideThicknessPt / 2f).coerceAtMost(minOf(cellWPt, cellHPt) * 0.1f)
+                        canvas.drawRect(
+                            xPt + halfStroke,
+                            yPt + halfStroke,
+                            xPt + cellWPt - halfStroke,
+                            yPt + cellHPt - halfStroke,
+                            borderPaint
+                        )
                     }
                 }
 

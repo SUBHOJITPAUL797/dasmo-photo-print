@@ -5,21 +5,25 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.Checkroom
-import androidx.compose.material.icons.filled.FormatColorFill
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.Checkroom
+import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.FormatColorFill
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,13 +35,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import com.example.domain.model.ProjectMode
 import com.example.ui.ProjectViewModel
 import com.example.ui.crop.PassportPhotoCropper
 import com.example.util.BitmapUtils
 import java.io.File
-import androidx.core.content.FileProvider
 
 fun createTempPictureUri(context: android.content.Context): Uri {
     val tempFile = File.createTempFile("temp_camera_image", ".jpg", context.cacheDir).apply {
@@ -60,7 +63,7 @@ fun PhotoSelectionScreen(
     var showResolutionWarning by remember { mutableStateOf(false) }
 
     var tempCameraUri by remember { mutableStateOf<Uri?>(null) }
-    
+
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
@@ -103,7 +106,6 @@ fun PhotoSelectionScreen(
                 loadedBitmap = bitmap
                 viewModel.handlePhotoSelected(uri, isPhotoA, context, bitmap)
 
-                // Quality resolution check (PRD Section 7.1.4)
                 val w = viewModel.widthCm.toFloatOrNull() ?: 3.5f
                 val h = viewModel.heightCm.toFloatOrNull() ?: 4.5f
                 val finalUnitW = if (viewModel.mode == ProjectMode.JOINT) {
@@ -142,7 +144,6 @@ fun PhotoSelectionScreen(
                 showHeadSilhouette = viewModel.mode != ProjectMode.ID_CARD,
                 onCropCompleted = { cropped ->
                     viewModel.handlePhotoCropped(cropped, isPhotoA)
-                    // Reset local screen variables
                     loadedBitmap = null
                     selectedLocalUri = null
                     showResolutionWarning = false
@@ -154,13 +155,13 @@ fun PhotoSelectionScreen(
                 }
             )
 
-            // Quality Warning Overlay Banner Info (PRD Section 7.1.4)
+            // Quality Warning Overlay Banner Info
             if (showResolutionWarning) {
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
                         .statusBarsPadding()
-                        .padding(horizontal = 16.dp, vertical = 50.dp)
+                        .padding(horizontal = 16.dp, vertical = 54.dp)
                         .testTag("quality_warning_banner"),
                     color = MaterialTheme.colorScheme.errorContainer,
                     contentColor = MaterialTheme.colorScheme.onErrorContainer,
@@ -168,7 +169,7 @@ fun PhotoSelectionScreen(
                     tonalElevation = 4.dp
                 ) {
                     Row(
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
@@ -178,7 +179,7 @@ fun PhotoSelectionScreen(
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "This photo's resolution is lower than recommended for sharp printing at this size. It may look slightly blurry.",
+                            text = "This photo's resolution is lower than recommended for 300 DPI printing at this size.",
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Medium
                         )
@@ -189,22 +190,22 @@ fun PhotoSelectionScreen(
     } else {
         val existingCroppedBitmap = if (isPhotoA) viewModel.cropABitmap else viewModel.cropBBitmap
 
-        // Standard picker selection greeting screen
         Scaffold(
             topBar = {
                 TopAppBar(
                     title = {
                         Text(
-                            when {
+                            text = when {
                                 viewModel.mode == ProjectMode.JOINT || viewModel.mode == ProjectMode.MULTI_PERSON -> if (isPhotoA) "Select Person 1 Photo" else "Select Person 2 Photo"
                                 viewModel.mode == ProjectMode.ID_CARD -> if (isPhotoA) "Select Front Side" else "Select Back Side"
                                 else -> "Select Portrait Photo"
-                            }
+                            },
+                            fontWeight = FontWeight.Bold
                         )
                     },
                     navigationIcon = {
                         IconButton(onClick = onBackClicked, modifier = Modifier.testTag("picker_back_btn")) {
-                            Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Go back")
+                            Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Go back")
                         }
                     }
                 )
@@ -225,12 +226,13 @@ fun PhotoSelectionScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
+                    .verticalScroll(rememberScrollState())
                     .padding(24.dp),
-                verticalArrangement = Arrangement.Center,
+                verticalArrangement = Arrangement.spacedBy(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
@@ -251,30 +253,31 @@ fun PhotoSelectionScreen(
                 }
 
                 if (existingCroppedBitmap != null) {
-                    // Render existing cropped preview card when navigating back/forward (keeps workflow state alive)
+                    // Render existing cropped preview card with labelled Studio Retouching & Suit Overlay tools
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f)
-                            .padding(bottom = 32.dp)
                             .testTag("picker_card_existing_status"),
                         shape = RoundedCornerShape(24.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
-                        )
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     ) {
                         Column(
-                            modifier = Modifier.fillMaxSize().padding(24.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Surface(
                                 modifier = Modifier
-                                    .size(160.dp, 200.dp)
+                                    .size(168.dp, 210.dp)
                                     .testTag("cropped_preview_frame"),
                                 shape = RoundedCornerShape(16.dp),
-                                border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
-                                shadowElevation = 4.dp
+                                border = BorderStroke(2.dp, MaterialTheme.colorScheme.primary),
+                                shadowElevation = 6.dp
                             ) {
                                 Image(
                                     bitmap = existingCroppedBitmap.asImageBitmap(),
@@ -285,32 +288,57 @@ fun PhotoSelectionScreen(
 
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            // STUDIO RETOUCHING & BACKDROP TOOLS
+                            Text(
+                                text = "Portrait Crop Ready",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Text(
+                                text = "Apply studio formal attire, backdrop tint, or auto-lighting below, or proceed directly to the print sheet preview.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // STUDIO RETOUCHING & BACKDROP TOOLS (Clearly Labelled)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 // Formal Suit Overlay
                                 var showSuitMenu by remember { mutableStateOf(false) }
-                                Box {
-                                    IconButton(onClick = { showSuitMenu = true }) {
-                                        Icon(imageVector = Icons.Default.Checkroom, contentDescription = "Formal Suit")
+                                Box(modifier = Modifier.weight(1f)) {
+                                    FilledTonalButton(
+                                        onClick = { showSuitMenu = true },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.Checkroom, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Suit", style = MaterialTheme.typography.labelMedium)
                                     }
                                     DropdownMenu(
                                         expanded = showSuitMenu,
                                         onDismissRequest = { showSuitMenu = false }
                                     ) {
                                         DropdownMenuItem(
-                                            text = { Text("Navy Suit") },
+                                            text = { Text("Navy Suit & Tie") },
                                             onClick = { viewModel.applyFormalAttire(isPhotoA, "navy_suit"); showSuitMenu = false }
                                         )
                                         DropdownMenuItem(
-                                            text = { Text("Black Suit") },
+                                            text = { Text("Black Suit & Tie") },
                                             onClick = { viewModel.applyFormalAttire(isPhotoA, "black_suit"); showSuitMenu = false }
                                         )
                                         DropdownMenuItem(
-                                            text = { Text("White Shirt") },
+                                            text = { Text("White Formal Shirt") },
                                             onClick = { viewModel.applyFormalAttire(isPhotoA, "white_shirt"); showSuitMenu = false }
                                         )
                                         DropdownMenuItem(
@@ -322,9 +350,16 @@ fun PhotoSelectionScreen(
 
                                 // Studio Backdrop Color
                                 var showBgMenu by remember { mutableStateOf(false) }
-                                Box {
-                                    IconButton(onClick = { showBgMenu = true }) {
-                                        Icon(imageVector = Icons.Default.FormatColorFill, contentDescription = "Backdrop Color")
+                                Box(modifier = Modifier.weight(1f)) {
+                                    FilledTonalButton(
+                                        onClick = { showBgMenu = true },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Icon(imageVector = Icons.Default.FormatColorFill, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Backdrop", style = MaterialTheme.typography.labelMedium)
                                     }
                                     DropdownMenu(
                                         expanded = showBgMenu,
@@ -343,36 +378,24 @@ fun PhotoSelectionScreen(
                                             onClick = { viewModel.applyBackdropColor(isPhotoA, android.graphics.Color.parseColor("#F5F5F5")); showBgMenu = false }
                                         )
                                         DropdownMenuItem(
-                                            text = { Text("Red") },
+                                            text = { Text("Soft Red") },
                                             onClick = { viewModel.applyBackdropColor(isPhotoA, android.graphics.Color.parseColor("#FFCDD2")); showBgMenu = false }
                                         )
                                     }
                                 }
 
                                 // Auto Retouch
-                                IconButton(onClick = { viewModel.applyAutoRetouch(isPhotoA) }) {
-                                    Icon(imageVector = Icons.Default.AutoFixHigh, contentDescription = "Auto Retouch")
+                                FilledTonalButton(
+                                    onClick = { viewModel.applyAutoRetouch(isPhotoA) },
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(imageVector = Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Retouch", style = MaterialTheme.typography.labelMedium)
                                 }
                             }
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            Text(
-                                text = "Current Portrait Crop Ready",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            Text(
-                                text = "You have an approved portrait cropped and loaded. You can keep using it, or load a new one from your gallery to replace it.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(horizontal = 16.dp)
-                            )
                         }
                     }
 
@@ -412,16 +435,20 @@ fun PhotoSelectionScreen(
                                     }
                                 }
                             },
-                            modifier = Modifier.fillMaxWidth().testTag("proceed_existing_btn")
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                                .testTag("proceed_existing_btn"),
+                            shape = RoundedCornerShape(14.dp)
                         ) {
-                            Text("Keep & Proceed")
+                            Text("Keep & Proceed", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Icon(imageVector = Icons.Default.ArrowForward, contentDescription = null)
+                            Icon(imageVector = Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
                         }
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             OutlinedButton(
                                 onClick = {
@@ -431,22 +458,24 @@ fun PhotoSelectionScreen(
                                         )
                                     )
                                 },
-                                modifier = Modifier.weight(1f).testTag("replace_photo_btn")
+                                modifier = Modifier.weight(1f).testTag("replace_photo_btn"),
+                                shape = RoundedCornerShape(12.dp)
                             ) {
-                                Icon(imageVector = Icons.Default.PhotoCamera, contentDescription = null)
+                                Icon(imageVector = Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("Gallery")
                             }
-                            
+
                             OutlinedButton(
                                 onClick = {
                                     val uri = createTempPictureUri(context)
                                     tempCameraUri = uri
                                     cameraLauncher.launch(uri)
                                 },
-                                modifier = Modifier.weight(1f).testTag("take_new_photo_btn")
+                                modifier = Modifier.weight(1f).testTag("take_new_photo_btn"),
+                                shape = RoundedCornerShape(12.dp)
                             ) {
-                                Icon(imageVector = Icons.Default.PhotoCamera, contentDescription = null)
+                                Icon(imageVector = Icons.Default.PhotoCamera, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("Camera")
                             }
@@ -462,11 +491,12 @@ fun PhotoSelectionScreen(
                                     }
                                 },
                                 enabled = originalUri != null,
-                                modifier = Modifier.weight(1f).testTag("recrop_existing_btn")
+                                modifier = Modifier.weight(1f).testTag("recrop_existing_btn"),
+                                shape = RoundedCornerShape(12.dp)
                             ) {
-                                Icon(imageVector = Icons.Default.Warning, contentDescription = null)
+                                Icon(imageVector = Icons.Default.Crop, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("Tweak")
+                                Text("Re-Crop")
                             }
                         }
                     }
@@ -475,31 +505,41 @@ fun PhotoSelectionScreen(
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f)
+                            .heightIn(min = 280.dp)
+                            .clickable {
+                                pickerLauncher.launch(
+                                    PickVisualMediaRequest(
+                                        ActivityResultContracts.PickVisualMedia.ImageOnly
+                                    )
+                                )
+                            }
                             .testTag("picker_card_launch"),
                         shape = RoundedCornerShape(24.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                         ),
+                        border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
                         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                     ) {
                         Column(
-                            modifier = Modifier.fillMaxSize().padding(24.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(32.dp),
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(80.dp)
+                                    .size(84.dp)
                                     .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.PhotoCamera,
+                                    imageVector = Icons.Default.PhotoLibrary,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(36.dp)
+                                    modifier = Modifier.size(40.dp)
                                 )
                             }
 
@@ -507,11 +547,11 @@ fun PhotoSelectionScreen(
 
                             Text(
                                 text = when {
-                                    viewModel.mode == ProjectMode.JOINT -> if (isPhotoA) "Select Photo of Person 1" else "Select Photo of Person 2"
-                                    viewModel.mode == ProjectMode.ID_CARD -> if (isPhotoA) "Select Front Side" else "Select Back Side"
+                                    viewModel.mode == ProjectMode.JOINT || viewModel.mode == ProjectMode.MULTI_PERSON -> if (isPhotoA) "Select Photo of Person 1" else "Select Photo of Person 2"
+                                    viewModel.mode == ProjectMode.ID_CARD -> if (isPhotoA) "Select Front Side of ID" else "Select Back Side of ID"
                                     else -> "Select Customer Photo"
                                 },
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center
                             )
@@ -519,20 +559,17 @@ fun PhotoSelectionScreen(
                             Spacer(modifier = Modifier.height(8.dp))
 
                             Text(
-                                text = "Take a high quality photo or select one from your gallery.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(horizontal = 16.dp)
+                                text = "Tap here to browse gallery or use the camera below. Built-in AI background removal & studio lighting included.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(32.dp))
-
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         OutlinedButton(
                             onClick = {
@@ -540,11 +577,15 @@ fun PhotoSelectionScreen(
                                 tempCameraUri = uri
                                 cameraLauncher.launch(uri)
                             },
-                            modifier = Modifier.weight(1f).testTag("camera_btn")
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp)
+                                .testTag("camera_btn"),
+                            shape = RoundedCornerShape(14.dp)
                         ) {
                             Icon(imageVector = Icons.Default.PhotoCamera, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Camera")
+                            Text("Camera", fontWeight = FontWeight.Bold)
                         }
 
                         Button(
@@ -555,11 +596,15 @@ fun PhotoSelectionScreen(
                                     )
                                 )
                             },
-                            modifier = Modifier.weight(1f).testTag("gallery_btn")
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(52.dp)
+                                .testTag("gallery_btn"),
+                            shape = RoundedCornerShape(14.dp)
                         ) {
-                            Icon(imageVector = Icons.Default.PhotoCamera, contentDescription = null)
+                            Icon(imageVector = Icons.Default.PhotoLibrary, contentDescription = null)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Gallery")
+                            Text("Gallery", fontWeight = FontWeight.Bold)
                         }
                     }
                 }

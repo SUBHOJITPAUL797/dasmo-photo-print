@@ -209,6 +209,9 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
     var computedPages by mutableStateOf<List<PageLayout>>(emptyList())
 
     // Final exported details
+    var currentProjectId by mutableStateOf(0L)
+    private var savedCropAUriCache: String? = null
+    private var savedCropBUriCache: String? = null
     var filename by mutableStateOf("")
     var generatedPdfUri by mutableStateOf<Uri?>(null)
     var isSavingPdf by mutableStateOf(false)
@@ -373,6 +376,13 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
         layoutEngineErrorText = ""
         computedPages = emptyList()
         generatedPdfUri = null
+        currentProjectId = 0L
+        savedCropAUriCache = null
+        savedCropBUriCache = null
+        customerName = ""
+        customerPhone = ""
+        topOffsetMm = "0.0"
+        leftOffsetMm = "0.0"
         filename = "PassportPhotos_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
         saveSuccessMessage = null
         idCardArrangement = "HORIZONTAL"
@@ -383,6 +393,40 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
 
         initHistory()
         currentStep = 1
+    }
+
+    fun selectMode(selectedMode: ProjectMode) {
+        mode = selectedMode
+        when (selectedMode) {
+            ProjectMode.SINGLE -> {
+                widthCm = "3.5"
+                heightCm = "4.5"
+                quantity = "16"
+            }
+            ProjectMode.BATCH_PAPER_SAVER -> {
+                widthCm = "3.5"
+                heightCm = "4.5"
+            }
+            ProjectMode.JOINT -> {
+                widthCm = "4.5"
+                heightCm = "3.5"
+                quantity = "8"
+            }
+            ProjectMode.ID_CARD -> {
+                widthCm = "8.5"
+                heightCm = "5.4"
+                quantity = "2"
+            }
+            ProjectMode.MULTI_PERSON -> {
+                widthCm = "3.5"
+                heightCm = "4.5"
+                quantityA = 8
+                quantityB = 8
+                quantity = "16"
+            }
+        }
+        initHistory()
+        currentStep = 2
     }
 
     fun selectPreset(presetName: String, presetWidth: Float, presetHeight: Float) {
@@ -522,6 +566,7 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
     fun handlePhotoCropped(bitmap: Bitmap, isPhotoA: Boolean) {
         if (isPhotoA) {
             cropABitmap = bitmap
+            savedCropAUriCache = null
             if (mode == ProjectMode.SINGLE || mode == ProjectMode.BATCH_PAPER_SAVER) {
                 finalUnitBitmap = bitmap
                 // Proceed directly to preview
@@ -535,6 +580,7 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
             }
         } else {
             cropBBitmap = bitmap
+            savedCropBUriCache = null
             // Both picked! 
             if (mode == ProjectMode.MULTI_PERSON) {
                 finalUnitBitmap = cropABitmap ?: cropBBitmap
@@ -649,7 +695,7 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
                 val w = widthCm.toFloatOrNull() ?: 3.5f
                 val h = heightCm.toFloatOrNull() ?: 4.5f
 
-                val q = quantity.toIntOrNull() ?: 16
+                val q = if (mode == ProjectMode.BATCH_PAPER_SAVER) getTotalBatchPhotosCount() else (quantity.toIntOrNull() ?: 16)
                 val m = marginCm.toFloatOrNull() ?: 0.5f
                 val s = spacingCm.toFloatOrNull() ?: 0.2f
 
@@ -667,10 +713,13 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
                         spacingCm = s,
                         dpi = dpi,
                         cuttingGuidesEnabled = cuttingGuidesEnabled,
-            cuttingGuideThicknessPt = cuttingGuideThicknessPt,
-            cuttingGuideStyle = cuttingGuideStyle,
-            cuttingGuideColor = cuttingGuideColor,
-                        allowRotation = allowRotation
+                        cuttingGuideThicknessPt = cuttingGuideThicknessPt,
+                        cuttingGuideStyle = cuttingGuideStyle,
+                        cuttingGuideColor = cuttingGuideColor,
+                        allowRotation = allowRotation,
+                        topOffsetMm = topOffsetMm.toFloatOrNull() ?: 0.0f,
+                        leftOffsetMm = leftOffsetMm.toFloatOrNull() ?: 0.0f,
+                        compactPacking = compactPacking
                     )
 
                     val success = PdfExporter.export(
@@ -689,21 +738,27 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
                     if (success) {
                         generatedPdfUri = targetUri
 
-                        // Securely preserve cropped portrait photos in clean internal app storage
-                        val savedPhotoAUri = cropABitmap?.let { bmp ->
-                            saveBitmapToLocalFile(context, bmp, "cropped_a")?.toString()
+                        // Securely preserve cropped portrait photos in clean internal app storage once per crop
+                        val savedPhotoAUri = savedCropAUriCache ?: cropABitmap?.let { bmp ->
+                            saveBitmapToLocalFile(context, bmp, "cropped_a")?.toString()?.also { savedCropAUriCache = it }
                         } ?: photoAUri?.toString()
 
                         val savedPhotoBUri = if (mode == ProjectMode.JOINT || mode == ProjectMode.ID_CARD || mode == ProjectMode.MULTI_PERSON) {
-                            cropBBitmap?.let { bmp ->
-                                saveBitmapToLocalFile(context, bmp, "cropped_b")?.toString()
+                            savedCropBUriCache ?: cropBBitmap?.let { bmp ->
+                                saveBitmapToLocalFile(context, bmp, "cropped_b")?.toString()?.also { savedCropBUriCache = it }
                             } ?: photoBUri?.toString()
                         } else {
                             photoBUri?.toString()
                         }
 
-                        // Create project record for history
+                        val totalSheets = pages.size.coerceAtLeast(1)
+                        val rate = ratePerSheet.toDoubleOrNull() ?: 20.0
+                        val extra = extraServicesFee.toDoubleOrNull() ?: 0.0
+                        val totalBill = (totalSheets * rate) + extra
+
+                        // Create or update project record for history (no duplicates on rename/calibration)
                         val project = Project(
+                            id = currentProjectId,
                             name = if (filename.isNotBlank()) filename else "PassportPhotos",
                             mode = mode.name,
                             unitWidthCm = w,
@@ -718,14 +773,20 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
                             spacingCm = s,
                             dpi = dpi,
                             cuttingGuidesEnabled = cuttingGuidesEnabled,
-            cuttingGuideThicknessPt = cuttingGuideThicknessPt,
-            cuttingGuideStyle = cuttingGuideStyle,
-            cuttingGuideColor = cuttingGuideColor,
+                            cuttingGuideThicknessPt = cuttingGuideThicknessPt,
+                            cuttingGuideStyle = cuttingGuideStyle,
+                            cuttingGuideColor = cuttingGuideColor,
                             allowRotation = allowRotation,
                             pdfFilePath = targetUri.toString(),
-                            pageOrientation = pageOrientation.name
+                            pageOrientation = pageOrientation.name,
+                            customerName = customerName.takeIf { it.isNotBlank() },
+                            customerPhone = customerPhone.takeIf { it.isNotBlank() },
+                            billingAmount = totalBill
                         )
-                        repository.insertProject(project)
+                        val insertedId = repository.insertProject(project)
+                        if (insertedId > 0L) {
+                            currentProjectId = insertedId
+                        }
 
                         saveSuccessMessage = "PDF exported and project saved to history successfully!"
                     } else {
@@ -744,6 +805,11 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
     fun loadProjectFromHistory(project: Project, context: Context) {
         viewModelScope.launch {
             try {
+                currentProjectId = project.id
+                savedCropAUriCache = project.photoAUri
+                savedCropBUriCache = project.photoBUri
+                customerName = project.customerName ?: ""
+                customerPhone = project.customerPhone ?: ""
                 filename = project.name
                 mode = ProjectMode.valueOf(project.mode)
                 widthCm = project.unitWidthCm.toString()

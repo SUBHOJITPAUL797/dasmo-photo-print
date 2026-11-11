@@ -103,10 +103,15 @@ fun ExportScreen(
         )
     }
 
-    // Trigger PDF generation into sandbox cache first
+    // Trigger PDF generation into sandbox cache (debounced when renaming so typing is smooth)
+    var hasRenderedOnce by remember { mutableStateOf(false) }
     LaunchedEffect(viewModel.filename) {
+        if (hasRenderedOnce) {
+            kotlinx.coroutines.delay(500)
+        }
         val targetCacheUri = localCachePdfUri
         viewModel.saveProjectPdf(context, targetCacheUri)
+        hasRenderedOnce = true
     }
 
     // Google Drive Folder Browser Dialog
@@ -763,7 +768,11 @@ fun ExportScreen(
                 ) {
                     Icon(imageVector = Icons.Default.Print, contentDescription = null, modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.width(12.dp))
-                    Text("Print Now (A4 Format)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = "Print Now (${viewModel.selectedPaperSpec.name})",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
 
                 // GOOGLE DRIVE SYNC CARD

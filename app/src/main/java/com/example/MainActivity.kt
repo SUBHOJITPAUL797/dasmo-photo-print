@@ -1,18 +1,11 @@
 package com.example
 
 import android.content.Context
-import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,14 +15,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.domain.model.Project
 import com.example.domain.model.ProjectMode
-import com.example.ui.AuthViewModel
 import com.example.ui.AuthState
-import com.example.ui.theme.MyApplicationTheme
+import com.example.ui.AuthViewModel
 import com.example.ui.ProjectViewModel
 import com.example.ui.ProjectViewModelFactory
 import com.example.ui.screens.*
+import com.example.ui.theme.MyApplicationTheme
 import com.example.util.UpdateChecker
 
 class MainActivity : ComponentActivity() {
@@ -56,11 +48,18 @@ class MainActivity : ComponentActivity() {
             MyApplicationTheme {
                 val authViewModel: AuthViewModel = viewModel()
                 val context = LocalContext.current
-                val sharedPrefs = context.getSharedPreferences("auth_prefs", Context.MODE_PRIVATE)
+                val sharedPrefs = remember { context.getSharedPreferences("auth_prefs", Context.MODE_PRIVATE) }
                 var showAdminDashboard by remember { mutableStateOf(false) }
 
                 var updateInfo by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
                 var showUpdateDialog by remember { mutableStateOf(false) }
+
+                val performFullSignOut: () -> Unit = {
+                    sharedPrefs.edit().clear().apply()
+                    showAdminDashboard = false
+                    viewModel.currentStep = 0
+                    authViewModel.logout(context)
+                }
 
                 LaunchedEffect(Unit) {
                     val savedEmail = sharedPrefs.getString("email", null)
@@ -79,21 +78,23 @@ class MainActivity : ComponentActivity() {
                         e.printStackTrace()
                     }
                 }
-                
+
                 // Real-time session verification (Cost-efficient Snapshot Listener)
                 LaunchedEffect(authViewModel.authState) {
                     if (authViewModel.authState is AuthState.Authenticated) {
                         val state = authViewModel.authState as AuthState.Authenticated
-                        val savedSession = sharedPrefs.getString("session_token", null)
-                        
-                        if (savedSession != null) {
-                            authViewModel.startSessionObserver(state.user.email, savedSession) {
-                                sharedPrefs.edit().remove("email").remove("session_token").apply()
-                                authViewModel.logout()
+                        val activeToken = state.user.currentSessionToken.ifEmpty {
+                            sharedPrefs.getString("session_token", null) ?: ""
+                        }
+                        if (activeToken.isNotEmpty()) {
+                            sharedPrefs.edit()
+                                .putString("email", state.user.email)
+                                .putString("session_token", activeToken)
+                                .apply()
+                            authViewModel.startSessionObserver(state.user.email, activeToken) {
+                                performFullSignOut()
                             }
                         }
-                    } else {
-                        authViewModel.stopSessionObserver()
                     }
                 }
 
@@ -113,13 +114,14 @@ class MainActivity : ComponentActivity() {
                                 ) {
                                     CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                                     Text(
-                                        text = "Connecting to Secure Services...",
+                                        text = "Verifying Security & License...",
                                         style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                 }
                             }
                         }
+
                         is AuthState.Unauthenticated -> {
                             LoginScreen(
                                 authViewModel = authViewModel,
@@ -131,55 +133,129 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         }
+
                         is AuthState.PendingApproval -> {
                             PendingApprovalScreen(
                                 user = currentAuthState.user,
-                                onSignOut = {
-                                    sharedPrefs.edit().clear().apply()
-                                    authViewModel.logout()
-                                }
+                                onCheckStatusNow = {
+                                    authViewModel.login(context, currentAuthState.user.email) { token ->
+                                        sharedPrefs.edit()
+                                            .putString("email", currentAuthState.user.email)
+                                            .putString("session_token", token)
+                                            .apply()
+                                    }
+                                },
+                                onSignOut = performFullSignOut
                             )
                         }
+
+                        is AuthState.AccessRevoked -> {
+                            AccessRevokedScreen(
+                                user = currentAuthState.user,
+                                onCheckStatusNow = {
+                                    authViewModel.login(context, currentAuthState.user.email) { token ->
+                                        sharedPrefs.edit()
+                                            .putString("email", currentAuthState.user.email)
+                                            .putString("session_token", token)
+                                            .apply()
+                                    }
+                                },
+                                onSignOut = performFullSignOut
+                            )
+                        }
+
+                        is AuthState.PlanExpired -> {
+                            PlanExpiredScreen(
+                                user = currentAuthState.user,
+                                onCheckStatusNow = {
+                                    authViewModel.login(context, currentAuthState.user.email) { token ->
+                                        sharedPrefs.edit()
+                                            .putString("email", currentAuthState.user.email)
+                                            .putString("session_token", token)
+                                            .apply()
+                                    }
+                                },
+                                onSignOut = performFullSignOut
+                            )
+                        }
+
                         is AuthState.DeviceMismatch -> {
                             DeviceMismatchScreen(
                                 registeredDeviceModel = currentAuthState.registeredDeviceModel,
+                                currentDeviceId = currentAuthState.currentDeviceId,
                                 user = currentAuthState.user,
-                                onSignOut = {
-                                    sharedPrefs.edit().clear().apply()
-                                    authViewModel.logout()
-                                }
+                                onCheckStatusNow = {
+                                    authViewModel.login(context, currentAuthState.user.email) { token ->
+                                        sharedPrefs.edit()
+                                            .putString("email", currentAuthState.user.email)
+                                            .putString("session_token", token)
+                                            .apply()
+                                    }
+                                },
+                                onSignOut = performFullSignOut
                             )
                         }
+
                         is AuthState.Error -> {
                             AuthErrorScreen(
                                 message = currentAuthState.message,
-                                onRetry = {
-                                    sharedPrefs.edit().clear().apply()
-                                    authViewModel.logout()
-                                }
+                                onRetry = performFullSignOut
                             )
                         }
+
                         is AuthState.Authenticated -> {
                             val user = currentAuthState.user
-                            viewModel.isApproved = user.isApproved
-                            viewModel.isExpired = user.expiryTimestamp > 0L && System.currentTimeMillis() > user.expiryTimestamp
+                            val isUserExpired = !user.isAdmin && user.expiryTimestamp > 0L && System.currentTimeMillis() > user.expiryTimestamp
+                            val isStrictlyApproved = user.isAdmin || (user.isApproved && user.status == "approved")
 
-                            if (showAdminDashboard && user.isAdmin) {
-                                AdminDashboardScreen(
-                                    authViewModel = authViewModel,
-                                    onBack = { showAdminDashboard = false }
-                                )
-                            } else {
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    MainContent(
-                                        viewModel = viewModel,
-                                        isAdmin = user.isAdmin,
-                                        onAdminClicked = { showAdminDashboard = true },
-                                        onLogoutClicked = {
-                                            sharedPrefs.edit().clear().apply()
-                                            authViewModel.logout()
-                                        }
+                            // Double runtime security gate: never allow unapproved or expired users into MainContent
+                            when {
+                                !user.isAdmin && user.status == "rejected" -> {
+                                    AccessRevokedScreen(
+                                        user = user,
+                                        onCheckStatusNow = { authViewModel.login(context, user.email) },
+                                        onSignOut = performFullSignOut
                                     )
+                                }
+
+                                !isStrictlyApproved -> {
+                                    PendingApprovalScreen(
+                                        user = user,
+                                        onCheckStatusNow = { authViewModel.login(context, user.email) },
+                                        onSignOut = performFullSignOut
+                                    )
+                                }
+
+                                isUserExpired -> {
+                                    PlanExpiredScreen(
+                                        user = user,
+                                        onCheckStatusNow = { authViewModel.login(context, user.email) },
+                                        onSignOut = performFullSignOut
+                                    )
+                                }
+
+                                else -> {
+                                    viewModel.isApproved = true
+                                    viewModel.isExpired = false
+
+                                    if (showAdminDashboard && user.isAdmin) {
+                                        androidx.activity.compose.BackHandler {
+                                            showAdminDashboard = false
+                                        }
+                                        AdminDashboardScreen(
+                                            authViewModel = authViewModel,
+                                            onBack = { showAdminDashboard = false }
+                                        )
+                                    } else {
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            MainContent(
+                                                viewModel = viewModel,
+                                                isAdmin = user.isAdmin,
+                                                onAdminClicked = { showAdminDashboard = true },
+                                                onLogoutClicked = performFullSignOut
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -187,7 +263,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (showUpdateDialog && updateInfo != null) {
-                    com.example.ui.screens.InAppUpdateDialog(
+                    InAppUpdateDialog(
                         updateInfo = updateInfo!!,
                         onDismiss = { showUpdateDialog = false }
                     )
@@ -205,6 +281,28 @@ fun MainContent(
     onLogoutClicked: () -> Unit = {}
 ) {
     val context = LocalContext.current
+
+    // Handle system back gesture across all wizard steps
+    androidx.activity.compose.BackHandler(enabled = viewModel.currentStep > 0) {
+        when (viewModel.currentStep) {
+            1 -> viewModel.currentStep = 0
+            2 -> viewModel.currentStep = 1
+            3 -> viewModel.currentStep = 2
+            4 -> viewModel.currentStep = 3
+            5 -> viewModel.currentStep = 4
+            6 -> {
+                if (viewModel.mode == ProjectMode.JOINT) {
+                    viewModel.currentStep = 5
+                } else if (viewModel.mode == ProjectMode.MULTI_PERSON || viewModel.mode == ProjectMode.ID_CARD) {
+                    viewModel.currentStep = 4
+                } else {
+                    viewModel.currentStep = 3
+                }
+            }
+            7 -> viewModel.currentStep = 6
+        }
+    }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
@@ -242,7 +340,6 @@ fun MainContent(
                     onNextClicked = {
                         val success = viewModel.computeCurrentLayout()
                         if (success) {
-                            // If dimensions are valid, proceed to crop stage 1
                             viewModel.currentStep = 3
                         }
                     }

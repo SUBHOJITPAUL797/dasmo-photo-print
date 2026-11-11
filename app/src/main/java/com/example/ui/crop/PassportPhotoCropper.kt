@@ -189,6 +189,10 @@ fun PassportPhotoCropper(
         }
     }
 
+    androidx.activity.compose.BackHandler {
+        onCancel()
+    }
+
     Scaffold(
         topBar = {
             Box(
@@ -198,9 +202,19 @@ fun PassportPhotoCropper(
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
+                IconButton(
+                    onClick = onCancel,
+                    modifier = Modifier.align(Alignment.CenterStart)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Cancel Crop"
+                    )
+                }
                 Text(
                     text = "Frame & Perfect Photo",
                     style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
                     modifier = Modifier.align(Alignment.Center),
                     textAlign = TextAlign.Center
                 )

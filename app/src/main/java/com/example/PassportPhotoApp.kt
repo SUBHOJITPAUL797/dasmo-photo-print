@@ -33,7 +33,7 @@ class PassportPhotoApp : Application() {
     val database by lazy {
         val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE projects ADD COLUMN cuttingGuideColor INTEGER NOT NULL DEFAULT 0xFF999999")
+                db.execSQL("ALTER TABLE projects ADD COLUMN cuttingGuideColor INTEGER NOT NULL DEFAULT -16777216")
             }
         }
         Room.databaseBuilder(this, AppDatabase::class.java, "passport_photo_print.db")

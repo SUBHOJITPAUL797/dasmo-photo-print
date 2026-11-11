@@ -1,8 +1,11 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.*
+import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -11,24 +14,35 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.widget.Toast
+import com.example.R
 import com.example.domain.model.Project
+import com.example.domain.model.ProjectMode
 import com.example.ui.ProjectViewModel
+import com.example.ui.components.ClayArtworkBadge
+import com.example.ui.components.ClayCard
+import com.example.ui.components.ClayIconOrb
+import com.example.ui.components.ClayPillBadge
+import com.example.ui.components.ClayQuickBentoTile
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -39,7 +53,6 @@ fun HomeScreen(
     isAdmin: Boolean = false,
     onAdminClicked: () -> Unit = {},
     onLogoutClicked: () -> Unit = {},
-
     viewModel: ProjectViewModel,
     onNewProjectClicked: () -> Unit,
     onReprintClicked: (Project) -> Unit
@@ -57,24 +70,51 @@ fun HomeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "DASMO PHOTO PRINT",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        ClayIconOrb(
+                            icon = Icons.Default.Print,
+                            accentColor = MaterialTheme.colorScheme.primary,
+                            size = 36.dp,
+                            iconSize = 18.dp,
+                            cornerRadius = 12.dp
+                        )
+                        Column {
+                            Text(
+                                text = "DASMO PHOTO PRINT",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Black
+                            )
+                            Text(
+                                text = "300 DPI Studio & Cyber Suite",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 },
                 actions = {
                     if (isAdmin) {
-                        IconButton(
+                        FilledTonalButton(
                             onClick = onAdminClicked,
-                            modifier = Modifier.testTag("admin_panel_btn")
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .height(36.dp)
+                                .testTag("admin_panel_btn")
                         ) {
                             Icon(
                                 imageVector = Icons.Default.AdminPanelSettings,
                                 contentDescription = "Admin Panel",
-                                tint = MaterialTheme.colorScheme.primary
+                                modifier = Modifier.size(16.dp)
                             )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Admin", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                         }
+                        Spacer(modifier = Modifier.width(4.dp))
                     }
                     IconButton(
                         onClick = { showSettingsDialog = true },
@@ -91,396 +131,465 @@ fun HomeScreen(
                         modifier = Modifier.testTag("logout_btn")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Logout,
+                            imageVector = Icons.AutoMirrored.Filled.Logout,
                             contentDescription = "Logout",
                             tint = MaterialTheme.colorScheme.error
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    containerColor = MaterialTheme.colorScheme.surface
                 )
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
+            ExtendedFloatingActionButton(
                 onClick = onNewProjectClicked,
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.testTag("new_project_fab")
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .shadow(8.dp, RoundedCornerShape(20.dp))
+                    .testTag("new_project_fab")
             ) {
-                Row(
-
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(imageVector = Icons.Default.Add, contentDescription = "New Print Job")
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("New Job", fontWeight = FontWeight.Bold)
-                }
+                Icon(imageVector = Icons.Default.AddPhotoAlternate, contentDescription = "New Print Job")
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("New Print Job", fontWeight = FontWeight.Black)
             }
         }
     ) { innerPadding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .background(MaterialTheme.colorScheme.background),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Expired or Under Review Banner
-            if (viewModel.isExpired) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 8.dp)
-                        .testTag("expired_banner"),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    border = androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.error)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Warning,
-                            contentDescription = "Expired",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(28.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "ACCESS PLAN EXPIRED",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Black,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Your subscription access plan has expired. Please contact DASMO Cyber Cafe Admin to purchase or renew your duration. Export, print, and Drive upload functions are locked.",
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.9f)
-                            )
-                        }
-                    }
+            // 1. 3D Clay Hero Showcase Card (Swiggy/Blinkit Banner Style)
+            item {
+                val (statusText, statusColor) = when {
+                    isAdmin -> "ADMIN • FULL STUDIO ACCESS" to Color(0xFF1565C0)
+                    viewModel.isExpired -> "ACCESS PLAN EXPIRED" to MaterialTheme.colorScheme.error
+                    viewModel.isApproved -> "ACTIVE LICENSE • READY TO PRINT" to Color(0xFF2E7D32)
+                    else -> "PENDING APPROVAL" to Color(0xFFEF6C00)
                 }
-            } else if (!viewModel.isApproved) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 8.dp)
-                        .testTag("under_review_banner"),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f)
-                    ),
-                    shape = RoundedCornerShape(12.dp)
+
+                ClayCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    accentColor = MaterialTheme.colorScheme.primary,
+                    cornerRadius = 26.dp,
+                    elevation = 8.dp,
+                    onClick = onNewProjectClicked
                 ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = "Info",
-                            tint = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Account Under Review",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Explore features freely. Export, print, and Drive upload are locked until admin approval.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.9f)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Header Hero Area
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-                    .padding(horizontal = 24.dp, vertical = 24.dp)
-            ) {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        // Subtle top background gradient
                         Box(
                             modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Print,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Column {
-                            Text(
-                                text = "DASMO PHOTO PRINT",
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Black,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                text = "Cyber Café & Photo Studio Edition",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Medium
-                            )
-
-                            // App Status Info
-                            Spacer(modifier = Modifier.height(6.dp))
-                            val statusColor = Color(0xFF2E7D32)
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = statusColor.copy(alpha = 0.12f)),
-                                shape = RoundedCornerShape(8.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, statusColor.copy(alpha = 0.5f))
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        tint = statusColor,
-                                        modifier = Modifier.size(14.dp)
+                                .matchParentSize()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.08f)
+                                        )
                                     )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "Full Version • Ready",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = statusColor
+                                )
+                        )
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(18.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier.weight(1.25f),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                ClayPillBadge(
+                                    text = statusText,
+                                    accentColor = statusColor
+                                )
+
+                                Text(
+                                    text = "Instant Passport & Studio Sheets",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Black,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    lineHeight = 26.sp
+                                )
+
+                                Text(
+                                    text = "Exact cm sizing, AI suit & background tools, pitch-black cut guides & 300 DPI A4/4×6 export.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+
+                                Spacer(modifier = Modifier.height(2.dp))
+
+                                Button(
+                                    onClick = onNewProjectClicked,
+                                    shape = RoundedCornerShape(14.dp),
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                    modifier = Modifier.height(40.dp)
+                                ) {
+                                    Text("Start Creating", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
+                            }
+
+                            // 3D Clay Hero Artwork
+                            Box(
+                                modifier = Modifier
+                                    .size(width = 122.dp, height = 112.dp)
+                                    .shadow(8.dp, RoundedCornerShape(22.dp))
+                                    .clip(RoundedCornerShape(22.dp))
+                                    .border(
+                                        width = 2.dp,
+                                        brush = Brush.linearGradient(
+                                            listOf(
+                                                Color.White.copy(alpha = 0.85f),
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                                            )
+                                        ),
+                                        shape = RoundedCornerShape(22.dp)
+                                    )
+                            ) {
+                                Image(
+                                    painter = painterResource(id = R.drawable.img_clay_studio_hero),
+                                    contentDescription = "3D Clay Studio Printer",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
                             }
                         }
                     }
                 }
             }
 
-            // Body Area
-            if (recentProjects.isEmpty()) {
-                Box(
+            // 2. Quick Studio Modes (Swiggy / Blinkit 2x2 3D Clay Bento Grid)
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Quick Launch Studio",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Black,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "View All 5 Modes →",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.clickable { onNewProjectClicked() }
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        ClayQuickBentoTile(
+                            title = "Passport Photo",
+                            subtitle = "3.5 × 4.5 cm • Visa / Govt",
+                            badgeText = "POPULAR",
+                            accentColor = MaterialTheme.colorScheme.primary,
+                            icon = Icons.Default.Person,
+                            artworkRes = R.drawable.img_clay_passport,
+                            onClick = {
+                                viewModel.startNewProject()
+                                viewModel.selectMode(ProjectMode.SINGLE)
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        ClayQuickBentoTile(
+                            title = "Paper Saver",
+                            subtitle = "Mix sizes on 1 sheet",
+                            badgeText = "SAVER",
+                            accentColor = Color(0xFFEF6C00),
+                            icon = Icons.Default.GridView,
+                            artworkRes = R.drawable.img_clay_paper_saver,
+                            onClick = {
+                                viewModel.startNewProject()
+                                viewModel.selectMode(ProjectMode.BATCH_PAPER_SAVER)
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        ClayQuickBentoTile(
+                            title = "Joint Couple",
+                            subtitle = "Side-by-side bank photo",
+                            badgeText = "COUPLE",
+                            accentColor = Color(0xFF00796B),
+                            icon = Icons.Default.People,
+                            onClick = {
+                                viewModel.startNewProject()
+                                viewModel.selectMode(ProjectMode.JOINT)
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+
+                        ClayQuickBentoTile(
+                            title = "ID Card / 2-Client",
+                            subtitle = "Front & Back or 2 Persons",
+                            badgeText = "STUDIO",
+                            accentColor = Color(0xFF6A1B9A),
+                            icon = Icons.Default.Badge,
+                            onClick = {
+                                viewModel.startNewProject()
+                                viewModel.selectMode(ProjectMode.ID_CARD)
+                            },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+
+            // 3. Recent Print Jobs Section
+            item {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
+                        .padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Card(
+                    Text(
+                        text = "Recent Print Jobs (${recentProjects.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    if (recentProjects.isNotEmpty()) {
+                        Text(
+                            text = "Tap to Reprint",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            if (recentProjects.isEmpty()) {
+                item {
+                    ClayCard(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                        ),
-                        shape = RoundedCornerShape(24.dp)
+                        accentColor = MaterialTheme.colorScheme.primary,
+                        cornerRadius = 24.dp,
+                        elevation = 4.dp
                     ) {
                         Column(
-                            modifier = Modifier.padding(24.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.PhotoLibrary,
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(72.dp)
-                                    .padding(bottom = 16.dp),
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                            ClayArtworkBadge(
+                                drawableRes = R.drawable.img_clay_passport,
+                                accentColor = MaterialTheme.colorScheme.primary,
+                                size = 76.dp,
+                                cornerRadius = 24.dp
                             )
 
+                            Spacer(modifier = Modifier.height(14.dp))
+
                             Text(
-                                text = "No past print jobs yet",
+                                text = "No Print Jobs Saved Yet",
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                fontWeight = FontWeight.Black,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
 
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
 
                             Text(
-                                text = "Tap the 'New Job' button to start cropping. Select any photo, specify the required centimeter sizes (e.g., standard Indian Passport 3.5×4.5 cm), and instantly compile a print-ready A4 PDF layout.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                text = "Pick any Quick Studio Mode above or tap 'New Print Job' to crop photos, add solid or dashed pitch-black borders, and print in 300 DPI.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
-                                modifier = Modifier.padding(horizontal = 12.dp)
+                                modifier = Modifier.padding(horizontal = 8.dp)
                             )
 
-                            Spacer(modifier = Modifier.height(24.dp))
+                            Spacer(modifier = Modifier.height(18.dp))
 
                             Button(
                                 onClick = onNewProjectClicked,
+                                shape = RoundedCornerShape(14.dp),
                                 modifier = Modifier.testTag("new_project_empty_btn")
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = null)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Text("Create First Print Layout")
+                                Text("Create First Print Layout", fontWeight = FontWeight.Bold)
                             }
                         }
                     }
                 }
             } else {
-                Text(
-                    text = "Recent Print Jobs (${recentProjects.size})",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                )
+                items(items = recentProjects, key = { it.id }) { project ->
+                    val modeAccent = when (project.mode) {
+                        "BATCH_PAPER_SAVER" -> Color(0xFFEF6C00)
+                        "JOINT" -> Color(0xFF00796B)
+                        "ID_CARD" -> Color(0xFF6A1B9A)
+                        "MULTI_PERSON" -> Color(0xFF2E7D32)
+                        else -> MaterialTheme.colorScheme.primary
+                    }
 
-                LazyColumn(
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 80.dp),
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(items = recentProjects, key = { it.id }) { project ->
-                        Card(
+                    ClayCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(
+                                onClick = { onReprintClicked(project) },
+                                onLongClick = { projectToDelete = project }
+                            )
+                            .testTag("project_item_${project.id}"),
+                        accentColor = modeAccent,
+                        cornerRadius = 20.dp,
+                        elevation = 4.dp
+                    ) {
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .combinedClickable(
-                                    onClick = { onReprintClicked(project) },
-                                    onLongClick = { projectToDelete = project }
-                                )
-                                .testTag("project_item_${project.id}"),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                            ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                            val uriToShow = project.photoAUri
+                            if (uriToShow.isNullOrEmpty()) {
+                                ClayIconOrb(
+                                    icon = when (project.mode) {
+                                        "JOINT" -> Icons.Default.People
+                                        "MULTI_PERSON" -> Icons.Default.GroupAdd
+                                        "BATCH_PAPER_SAVER" -> Icons.Default.GridView
+                                        "ID_CARD" -> Icons.Default.Badge
+                                        else -> Icons.Default.Person
+                                    },
+                                    accentColor = modeAccent,
+                                    size = 54.dp,
+                                    iconSize = 26.dp,
+                                    cornerRadius = 16.dp
+                                )
+                            } else {
                                 Box(
                                     modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(
-                                            when (project.mode) {
-                                                "JOINT" -> MaterialTheme.colorScheme.tertiaryContainer
-                                                "ID_CARD" -> MaterialTheme.colorScheme.secondaryContainer
-                                                else -> MaterialTheme.colorScheme.primaryContainer
-                                            }
+                                        .size(54.dp)
+                                        .shadow(4.dp, RoundedCornerShape(16.dp))
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .border(
+                                            1.5.dp,
+                                            modeAccent.copy(alpha = 0.45f),
+                                            RoundedCornerShape(16.dp)
                                         )
-                                        .clickable { photoToPreview = project },
-                                    contentAlignment = Alignment.Center
+                                        .clickable { photoToPreview = project }
                                 ) {
-                                    val uriToShow = project.photoAUri
-                                    if (uriToShow.isNullOrEmpty()) {
-                                        Icon(
-                                            imageVector = when (project.mode) {
-                                                "JOINT" -> Icons.Default.People
-                                                "ID_CARD" -> Icons.Default.Badge
-                                                else -> Icons.Default.Person
-                                            },
-                                            contentDescription = null,
-                                            tint = when (project.mode) {
-                                                "JOINT" -> MaterialTheme.colorScheme.onTertiaryContainer
-                                                "ID_CARD" -> MaterialTheme.colorScheme.onSecondaryContainer
-                                                else -> MaterialTheme.colorScheme.onPrimaryContainer
-                                            },
-                                            modifier = Modifier.size(24.dp)
-                                        )
-                                    } else {
-                                        coil.compose.AsyncImage(
-                                            model = uriToShow,
-                                            contentDescription = "Project Photo",
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                        )
-                                    }
+                                    coil.compose.AsyncImage(
+                                        model = uriToShow,
+                                        contentDescription = "Project Photo",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
                                 }
+                            }
 
-                                Spacer(modifier = Modifier.width(16.dp))
+                            Spacer(modifier = Modifier.width(14.dp))
 
-                                Column(
-                                    modifier = Modifier.weight(1f)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Text(
                                         text = project.name,
                                         style = MaterialTheme.typography.bodyLarge,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
+                                    val modeBadgeLabel = when (project.mode) {
+                                        "BATCH_PAPER_SAVER" -> "MIXED"
+                                        "JOINT" -> "JOINT"
+                                        "ID_CARD" -> "ID CARD"
+                                        "MULTI_PERSON" -> "2-CLIENT"
+                                        else -> "PASSPORT"
+                                    }
+                                    ClayPillBadge(
+                                        text = modeBadgeLabel,
+                                        accentColor = modeAccent
+                                    )
+                                }
 
-                                    Row(
-
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.padding(top = 4.dp)
-                                    ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                ) {
+                                    Text(
+                                        text = "${project.unitWidthCm} × ${project.unitHeightCm} cm",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = modeAccent
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "•",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "${project.quantity} Prints",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (!project.customerName.isNullOrBlank()) {
+                                        Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = "${project.unitWidthCm} × ${project.unitHeightCm} cm",
+                                            text = "• ${project.customerName}",
                                             style = MaterialTheme.typography.bodySmall,
                                             fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "•",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = "${project.quantity} Prints",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
                                         )
                                     }
-
-                                    val dateFormat = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
-                                    Text(
-                                        text = dateFormat.format(Date(project.createdAt)),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                        modifier = Modifier.padding(top = 4.dp)
-                                    )
                                 }
 
-                                IconButton(
-                                    onClick = { projectToDelete = project },
-                                    modifier = Modifier.testTag("delete_project_${project.id}")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Delete Job Records",
-                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
-                                    )
-                                }
+                                val dateFormat = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
+                                Text(
+                                    text = dateFormat.format(Date(project.createdAt)),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                    modifier = Modifier.padding(top = 3.dp)
+                                )
+                            }
+
+                            IconButton(
+                                onClick = { projectToDelete = project },
+                                modifier = Modifier.testTag("delete_project_${project.id}")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteOutline,
+                                    contentDescription = "Delete Job Record",
+                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.85f)
+                                )
                             }
                         }
                     }
@@ -494,8 +603,8 @@ fun HomeScreen(
         val proj = projectToDelete!!
         AlertDialog(
             onDismissRequest = { projectToDelete = null },
-            title = { Text("Delete Print Job") },
-            text = { Text("Are you sure you want to delete this print job record from history? Tapping Delete will remove the metadata of '${proj.name}' permanently.") },
+            title = { Text("Delete Print Job", fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to remove '${proj.name}' from recent print jobs?") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -505,13 +614,11 @@ fun HomeScreen(
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
                     modifier = Modifier.testTag("confirm_delete_btn")
                 ) {
-                    Text("Delete")
+                    Text("Delete", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(
-                    onClick = { projectToDelete = null }
-                ) {
+                TextButton(onClick = { projectToDelete = null }) {
                     Text("Cancel")
                 }
             }
@@ -525,7 +632,7 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
@@ -536,7 +643,7 @@ fun HomeScreen(
                         .fillMaxWidth()
                         .wrapContentHeight()
                         .clickable { photoToPreview = null },
-                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                    contentScale = ContentScale.Fit
                 )
                 IconButton(
                     onClick = { photoToPreview = null },
@@ -557,34 +664,33 @@ fun HomeScreen(
 
     if (showSettingsDialog) {
         val googleAccount = com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context)
-        
+
         AlertDialog(
             onDismissRequest = { showSettingsDialog = false },
             icon = {
-                Icon(
-                    imageVector = Icons.Default.Settings,
-                    contentDescription = "App Settings",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(32.dp)
+                ClayIconOrb(
+                    icon = Icons.Default.Settings,
+                    accentColor = MaterialTheme.colorScheme.primary,
+                    size = 44.dp,
+                    iconSize = 22.dp,
+                    cornerRadius = 14.dp
                 )
             },
             title = {
                 Text(
-                    text = "App Settings & Information",
+                    text = "App Settings & Studio Info",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Black
                 )
             },
             text = {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // App details card
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        )
+                        ),
+                        shape = RoundedCornerShape(14.dp)
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
@@ -593,26 +699,32 @@ fun HomeScreen(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Cyber Café & Photo Studio Edition v1.0",
+                                text = "Cyber Café & Photo Studio Edition",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(4.dp))
+                            val settingsStatusText = when {
+                                isAdmin -> "Status: Administrator (Full Access Enabled)"
+                                viewModel.isExpired -> "Status: Access Plan Expired"
+                                viewModel.isApproved -> "Status: Active Subscription Plan"
+                                else -> "Status: Pending Administrator Approval"
+                            }
                             Text(
-                                text = "Status: Full Access Enabled (No Restrictions)",
+                                text = settingsStatusText,
                                 style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF2E7D32),
+                                color = if (viewModel.isApproved || isAdmin) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
                                 fontWeight = FontWeight.Bold
                             )
                         }
                     }
 
-                    // Google Drive Status Card
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                        )
+                        ),
+                        shape = RoundedCornerShape(14.dp)
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -638,7 +750,6 @@ fun HomeScreen(
                         }
                     }
 
-                    // App Updates Card
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -660,7 +771,8 @@ fun HomeScreen(
                             },
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                        )
+                        ),
+                        shape = RoundedCornerShape(14.dp)
                     ) {
                         Row(
                             modifier = Modifier.padding(12.dp),
@@ -688,12 +800,12 @@ fun HomeScreen(
                         }
                     }
 
-                    // Print Specs Info
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                        )
+                        ),
+                        shape = RoundedCornerShape(14.dp)
                     ) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(
@@ -703,7 +815,7 @@ fun HomeScreen(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "• Resolution: 300 DPI High-Quality\n• Standard Sizes: A4, 4x6, 5x7, 8x10, Custom\n• Photo Types: Single Passport, Joint Photo, Stamp Size",
+                                text = "• Resolution: 300 DPI High-Quality\n• Standard Sizes: A4, 4×6\", 5×7\", Custom\n• Cut Guides: Solid / Dashed in Pitch Black & Custom Colors",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -712,9 +824,7 @@ fun HomeScreen(
                 }
             },
             confirmButton = {
-                Button(
-                    onClick = { showSettingsDialog = false }
-                ) {
+                Button(onClick = { showSettingsDialog = false }) {
                     Text("Close")
                 }
             }

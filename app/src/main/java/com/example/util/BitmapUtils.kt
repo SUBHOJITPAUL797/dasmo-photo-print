@@ -198,7 +198,7 @@ object BitmapUtils {
         return composited
     }
 
-    private fun drawWithCenterCrop(canvas: Canvas, srcBitmap: Bitmap, dstRect: RectF, paint: Paint) {
+    fun drawWithCenterCrop(canvas: Canvas, srcBitmap: Bitmap, dstRect: RectF, paint: Paint) {
         val srcW = srcBitmap.width.toFloat()
         val srcH = srcBitmap.height.toFloat()
         val dstW = dstRect.width()
