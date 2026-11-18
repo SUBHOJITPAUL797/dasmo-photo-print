@@ -107,20 +107,12 @@ object GoogleDriveService {
 
     suspend fun createFolder(accessToken: String, name: String, parentId: String = "root"): String? = withContext(Dispatchers.IO) {
         val url = "https://www.googleapis.com/drive/v3/files"
-        
-        val parentsArr = if (parentId == "root") {
-            "[\"root\"]"
-        } else {
-            "[\"$parentId\"]"
-        }
 
-        val jsonBody = """
-            {
-                "name": "$name",
-                "mimeType": "application/vnd.google-apps.folder",
-                "parents": $parentsArr
-            }
-        """.trimIndent()
+        val jsonBody = JSONObject().apply {
+            put("name", name)
+            put("mimeType", "application/vnd.google-apps.folder")
+            put("parents", org.json.JSONArray().put(if (parentId == "root") "root" else parentId))
+        }.toString()
 
         val request = Request.Builder()
             .url(url)
@@ -146,18 +138,11 @@ object GoogleDriveService {
     suspend fun uploadPdf(accessToken: String, file: File, fileName: String, parentId: String = "root"): Boolean = withContext(Dispatchers.IO) {
         val url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart"
 
-        val parentsArr = if (parentId == "root") {
-            "[\"root\"]"
-        } else {
-            "[\"$parentId\"]"
-        }
-
-        val metadata = """
-            {
-                "name": "$fileName.pdf",
-                "parents": $parentsArr
-            }
-        """.trimIndent()
+        val safePdfName = if (fileName.endsWith(".pdf", ignoreCase = true)) fileName else "$fileName.pdf"
+        val metadata = JSONObject().apply {
+            put("name", safePdfName)
+            put("parents", org.json.JSONArray().put(if (parentId == "root") "root" else parentId))
+        }.toString()
 
         val multipartBody = MultipartBody.Builder()
             .setType("multipart/related".toMediaTypeOrNull()!!)

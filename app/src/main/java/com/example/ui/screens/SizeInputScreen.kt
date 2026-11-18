@@ -34,7 +34,9 @@ import androidx.compose.ui.unit.sp
 import com.example.domain.model.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.CircleShape
+import com.example.R
 import com.example.ui.ProjectViewModel
+import com.example.ui.components.ClayWizardStepBanner
 
 @OptIn(ExperimentalAnimationApi::class, ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -70,6 +72,24 @@ fun SizeInputScreen(
     var isAdvancedExpanded by remember { mutableStateOf(false) }
 
     val canProceed = if (isBatchMode) isBatchValid else (isWidthValid && isHeightValid && isQuantityValid)
+
+    // Real-time layout engine validation so capacity and overflow warnings update immediately as user types or switches paper
+    LaunchedEffect(
+        viewModel.mode,
+        viewModel.widthCm,
+        viewModel.heightCm,
+        viewModel.quantity,
+        viewModel.marginCm,
+        viewModel.spacingCm,
+        viewModel.selectedPaperSpec,
+        viewModel.allowRotation,
+        viewModel.pageOrientation,
+        canProceed
+    ) {
+        if (canProceed) {
+            viewModel.computeCurrentLayout()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -139,38 +159,31 @@ fun SizeInputScreen(
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Step marker indicator
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Step 2 of 5",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                LinearProgressIndicator(
-                    progress = { 0.4f },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)),
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
+            // 3D Claymorphic Step Header Banner
+            ClayWizardStepBanner(
+                stepLabel = "STEP 2 OF 5",
+                title = when (viewModel.mode) {
+                    ProjectMode.BATCH_PAPER_SAVER -> "Mixed Photo Batch Studio"
+                    ProjectMode.JOINT -> "Joint Portrait Size Setup"
+                    ProjectMode.ID_CARD -> "ID Card Print Dimensions"
+                    ProjectMode.MULTI_PERSON -> "Two-Person Sheet Setup"
+                    ProjectMode.SINGLE -> "Enter Print Dimensions"
+                },
+                subtitle = "Select a standard preset or enter custom cm dimensions & sheet format",
+                progress = 0.4f,
+                accentColor = MaterialTheme.colorScheme.primary,
+                artworkRes = when (viewModel.mode) {
+                    ProjectMode.BATCH_PAPER_SAVER -> R.drawable.img_clay_paper_saver
+                    ProjectMode.ID_CARD -> R.drawable.img_clay_studio_hero
+                    else -> R.drawable.img_clay_passport
+                }
+            )
 
             if (isBatchMode) {
                 MixedBatchStudioContent(
                     viewModel = viewModel
                 )
             } else {
-                Text(
-                    text = "Enter Print Dimensions",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Black
-                )
 
                 // Dynamic Interactive Studio Guide
                 DimensionPreview(
@@ -1023,14 +1036,15 @@ fun A4SheetPreviewCanvas(
                             }
                         }
 
-                        // Draw Cutting Guides Borders if checked
+                        // Draw Cutting Guides Borders if checked (inset by halfStroke so border never bleeds into the white spacing gap)
                         if (cuttingGuidesEnabled) {
                             val strokeWidthPx = (cuttingGuideThicknessPt * (2.54f / 72f) * scale).coerceAtLeast(0.8f)
                             val dashUnitPx = (3f * (2.54f / 72f) * scale).coerceAtLeast(2.5f)
+                            val halfStroke = (strokeWidthPx / 2f).coerceAtMost(minOf(photoWPx, photoHPx) * 0.1f)
                             drawRect(
                                 color = Color(cuttingGuideColor),
-                                topLeft = Offset(x, y),
-                                size = Size(photoWPx, photoHPx),
+                                topLeft = Offset(x + halfStroke, y + halfStroke),
+                                size = Size((photoWPx - strokeWidthPx).coerceAtLeast(1f), (photoHPx - strokeWidthPx).coerceAtLeast(1f)),
                                 style = Stroke(
                                     width = strokeWidthPx,
                                     pathEffect = if (cuttingGuideStyle == "dashed") PathEffect.dashPathEffect(floatArrayOf(dashUnitPx, dashUnitPx), 0f) else null
@@ -2072,7 +2086,7 @@ fun MixedBatchSheetPreviewCanvas(
     marginCm: Float,
     spacingCm: Float,
     cuttingGuidesEnabled: Boolean,
-    cuttingGuideColor: Int = 0xFF999999.toInt(),
+    cuttingGuideColor: Int = 0xFF000000.toInt(),
     cuttingGuideStyle: String = "dashed",
     cuttingGuideThicknessPt: Float = 1.0f,
     modifier: Modifier = Modifier
@@ -2146,14 +2160,15 @@ fun MixedBatchSheetPreviewCanvas(
                             center = Offset(headX, headY)
                         )
 
-                        // Cutting guides with user-selected color, style (dashed/solid), and thickness
+                        // Cutting guides with user-selected color, style (dashed/solid), and thickness (inset so white gap stays pure white)
                         if (cuttingGuidesEnabled) {
                             val strokeWidthPx = (cuttingGuideThicknessPt * (2.54f / 72f) * scale).coerceAtLeast(0.8f)
                             val dashUnitPx = (3f * (2.54f / 72f) * scale).coerceAtLeast(2.5f)
+                            val halfStroke = (strokeWidthPx / 2f).coerceAtMost(minOf(w, h) * 0.1f)
                             drawRect(
                                 color = Color(cuttingGuideColor),
-                                topLeft = Offset(x, y),
-                                size = Size(w, h),
+                                topLeft = Offset(x + halfStroke, y + halfStroke),
+                                size = Size((w - strokeWidthPx).coerceAtLeast(1f), (h - strokeWidthPx).coerceAtLeast(1f)),
                                 style = Stroke(
                                     width = strokeWidthPx,
                                     pathEffect = if (cuttingGuideStyle == "dashed") PathEffect.dashPathEffect(floatArrayOf(dashUnitPx, dashUnitPx), 0f) else null

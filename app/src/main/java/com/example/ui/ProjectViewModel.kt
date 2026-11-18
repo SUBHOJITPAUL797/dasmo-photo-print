@@ -23,22 +23,54 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
+sealed class LayoutComputationState {
+    object Idle : LayoutComputationState()
+    data class Ready(val pages: List<PageLayout>) : LayoutComputationState()
+    data class Error(val message: String) : LayoutComputationState()
+}
+
+sealed class PdfExportState {
+    object Idle : PdfExportState()
+    object Compiling : PdfExportState()
+    data class Success(val uri: Uri, val message: String) : PdfExportState()
+    data class Error(val message: String) : PdfExportState()
+}
+
 class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() {
 
-    // Active wizard navigation steps:
-    // 0 = History List (Home)
-    // 1 = Mode Select (Single vs Joint)
-    // 2 = Size & Quantity (and settings)
-    // 3 = Crop Screen for Photo A
-    // 4 = Crop Screen for Photo B (Joint mode only)
-    // 5 = Joint Balance Screen (Joint mode only)
-    // 6 = Print Multi-Page Preview
-    // 7 = Export Screen (Save, Share, Print)
-    var currentStep by mutableStateOf(0)
-    
+    // Explicit Wizard Step State Machine
+    var wizardStep by mutableStateOf(WizardStep.HOME)
+
+    var currentStep: Int
+        get() = wizardStep.stepNumber
+        set(value) {
+            wizardStep = WizardStep.fromStepNumber(value)
+        }
+
+    fun navigateToStep(step: WizardStep) {
+        wizardStep = step
+    }
+
+    fun navigateBack() {
+        wizardStep = when (wizardStep) {
+            WizardStep.HOME -> WizardStep.HOME
+            WizardStep.MODE_SELECT -> WizardStep.HOME
+            WizardStep.SIZE_INPUT -> WizardStep.MODE_SELECT
+            WizardStep.PHOTO_A -> WizardStep.SIZE_INPUT
+            WizardStep.PHOTO_B -> WizardStep.PHOTO_A
+            WizardStep.JOINT_COMPOSE -> WizardStep.PHOTO_B
+            WizardStep.PREVIEW -> when (mode) {
+                ProjectMode.JOINT -> WizardStep.JOINT_COMPOSE
+                ProjectMode.MULTI_PERSON, ProjectMode.ID_CARD -> WizardStep.PHOTO_B
+                ProjectMode.SINGLE, ProjectMode.BATCH_PAPER_SAVER -> WizardStep.PHOTO_A
+            }
+            WizardStep.EXPORT -> WizardStep.PREVIEW
+        }
+    }
+
     // Approval status for restrictions (pending accounts cannot print or upload to Drive)
     var isApproved by mutableStateOf(true)
-    
+
     // Expiration status and duration for DASMO photo print access
     var isExpired by mutableStateOf(false)
     var expiryTimeMs by mutableStateOf(0L)
@@ -78,11 +110,21 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
     var dpi by mutableStateOf(300)
     var cuttingGuidesEnabled by mutableStateOf(true)
     var cuttingGuideThicknessPt by mutableStateOf(1.0f)
-    var cuttingGuideStyle by mutableStateOf("dashed")
+    var cuttingGuideStyleEnum by mutableStateOf(CuttingGuideStyle.DASHED)
+    var cuttingGuideStyle: String
+        get() = cuttingGuideStyleEnum.rawValue
+        set(value) {
+            cuttingGuideStyleEnum = CuttingGuideStyle.fromRawValue(value)
+        }
     var cuttingGuideColor by mutableStateOf(0xFF000000.toInt())
     var allowRotation by mutableStateOf(true)
     var pageOrientation by mutableStateOf(PageOrientation.PORTRAIT)
-    var idCardArrangement by mutableStateOf("HORIZONTAL") // "HORIZONTAL" or "VERTICAL"
+    var idCardArrangementEnum by mutableStateOf(IdCardArrangement.HORIZONTAL)
+    var idCardArrangement: String
+        get() = idCardArrangementEnum.name
+        set(value) {
+            idCardArrangementEnum = IdCardArrangement.fromRawValue(value)
+        }
 
     // Printer Alignment Calibration Offsets (mm)
     var topOffsetMm by mutableStateOf("0.0")
@@ -203,19 +245,44 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
     var jointDividerLinesEnabled by mutableStateOf(false)
     var jointDividerColor by mutableStateOf(0xFF000000.toInt())
 
-    // Layout engine output
-    var isLayoutTooLargeError by mutableStateOf(false)
-    var layoutEngineErrorText by mutableStateOf("")
-    var computedPages by mutableStateOf<List<PageLayout>>(emptyList())
+    // Explicit Layout Engine State Machine
+    var layoutState by mutableStateOf<LayoutComputationState>(LayoutComputationState.Idle)
 
-    // Final exported details
+    val isLayoutTooLargeError: Boolean
+        get() = layoutState is LayoutComputationState.Error
+
+    val layoutEngineErrorText: String
+        get() = (layoutState as? LayoutComputationState.Error)?.message ?: ""
+
+    val computedPages: List<PageLayout>
+        get() = (layoutState as? LayoutComputationState.Ready)?.pages ?: emptyList()
+
+    // Explicit PDF Compilation & Export State Machine
     var currentProjectId by mutableStateOf(0L)
     private var savedCropAUriCache: String? = null
     private var savedCropBUriCache: String? = null
     var filename by mutableStateOf("")
-    var generatedPdfUri by mutableStateOf<Uri?>(null)
-    var isSavingPdf by mutableStateOf(false)
-    var saveSuccessMessage by mutableStateOf<String?>(null)
+    var pdfExportState by mutableStateOf<PdfExportState>(PdfExportState.Idle)
+    private var hydratedPdfUri by mutableStateOf<Uri?>(null)
+
+    var generatedPdfUri: Uri?
+        get() = (pdfExportState as? PdfExportState.Success)?.uri ?: hydratedPdfUri
+        set(value) {
+            hydratedPdfUri = value
+            if (value == null && pdfExportState is PdfExportState.Success) {
+                pdfExportState = PdfExportState.Idle
+            }
+        }
+
+    val isSavingPdf: Boolean
+        get() = pdfExportState is PdfExportState.Compiling
+
+    val saveSuccessMessage: String?
+        get() = when (val state = pdfExportState) {
+            is PdfExportState.Success -> state.message
+            is PdfExportState.Error -> state.message
+            else -> null
+        }
 
     // Selected Historic Project for re-export
     var reExportProject by mutableStateOf<Project?>(null)
@@ -357,7 +424,7 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
         dpi = 300
         cuttingGuidesEnabled = true
         cuttingGuideThicknessPt = 1.0f
-        cuttingGuideStyle = "dashed"
+        cuttingGuideStyleEnum = CuttingGuideStyle.DASHED
         cuttingGuideColor = 0xFF000000.toInt()
         allowRotation = true
         pageOrientation = PageOrientation.PORTRAIT
@@ -372,10 +439,9 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
         jointDividerLinesEnabled = false
         jointDividerColor = 0xFF000000.toInt()
 
-        isLayoutTooLargeError = false
-        layoutEngineErrorText = ""
-        computedPages = emptyList()
-        generatedPdfUri = null
+        layoutState = LayoutComputationState.Idle
+        pdfExportState = PdfExportState.Idle
+        hydratedPdfUri = null
         currentProjectId = 0L
         savedCropAUriCache = null
         savedCropBUriCache = null
@@ -384,15 +450,14 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
         topOffsetMm = "0.0"
         leftOffsetMm = "0.0"
         filename = "PassportPhotos_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-        saveSuccessMessage = null
-        idCardArrangement = "HORIZONTAL"
+        idCardArrangementEnum = IdCardArrangement.HORIZONTAL
         selectedPaperSpec = com.example.domain.model.PaperSizeSpec.A4
         batchItems.clear()
         batchItems.add(com.example.domain.model.BatchItem(label = "India Passport", widthCm = 3.5f, heightCm = 4.5f, quantity = 8))
         batchItems.add(com.example.domain.model.BatchItem(label = "Stamp Size", widthCm = 2.0f, heightCm = 2.5f, quantity = 4))
 
         initHistory()
-        currentStep = 1
+        wizardStep = WizardStep.MODE_SELECT
     }
 
     fun selectMode(selectedMode: ProjectMode) {
@@ -426,7 +491,7 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
             }
         }
         initHistory()
-        currentStep = 2
+        wizardStep = WizardStep.SIZE_INPUT
     }
 
     fun selectPreset(presetName: String, presetWidth: Float, presetHeight: Float) {
@@ -444,10 +509,9 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
         val s = spacingCm.toFloatOrNull() ?: 0.2f
 
         return if (mode == ProjectMode.ID_CARD) {
-            if (idCardArrangement == "HORIZONTAL") {
-                UnitSizeCm(wVal * 2f + s, hVal)
-            } else {
-                UnitSizeCm(wVal, hVal * 2f + s)
+            when (idCardArrangementEnum) {
+                IdCardArrangement.HORIZONTAL -> UnitSizeCm(wVal * 2f + s, hVal)
+                IdCardArrangement.VERTICAL -> UnitSizeCm(wVal, hVal * 2f + s)
             }
         } else {
             UnitSizeCm(wVal, hVal)
@@ -455,9 +519,6 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
     }
 
     fun computeCurrentLayout(): Boolean {
-        isLayoutTooLargeError = false
-        layoutEngineErrorText = ""
-
         if (mode == ProjectMode.MULTI_PERSON) {
             syncMultiPersonQuantities()
         }
@@ -494,41 +555,37 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
         )
 
         try {
-            if (mode == ProjectMode.BATCH_PAPER_SAVER) {
+            val pages = if (mode == ProjectMode.BATCH_PAPER_SAVER) {
                 if (batchItems.isEmpty()) {
                     // Pre-populate with default 8 Passport + 4 Stamp = 12 pcs
                     batchItems.add(com.example.domain.model.BatchItem(label = "India Passport", widthCm = 3.5f, heightCm = 4.5f, quantity = 8))
                     batchItems.add(com.example.domain.model.BatchItem(label = "Stamp Size", widthCm = 2.0f, heightCm = 2.5f, quantity = 4))
                 }
-                computedPages = LayoutEngine.computeMixedBatchLayout(batchItems, settings)
+                LayoutEngine.computeMixedBatchLayout(batchItems, settings)
             } else {
-                computedPages = LayoutEngine.computeLayout(unitSize, q, settings)
+                LayoutEngine.computeLayout(unitSize, q, settings)
             }
+            layoutState = LayoutComputationState.Ready(pages)
             return true
         } catch (e: LayoutException) {
             // Smart layout auto-switching fallback:
-            if (pageOrientation == PageOrientation.PORTRAIT) {
-                val altSettings = settings.copy(pageWidthCm = pHeight, pageHeightCm = pWidth)
-                try {
-                    computedPages = LayoutEngine.computeLayout(unitSize, q, altSettings)
-                    pageOrientation = PageOrientation.LANDSCAPE
-                    return true
-                } catch (e2: LayoutException) {
-                    // Both failed
+            val altSettings = settings.copy(pageWidthCm = pHeight, pageHeightCm = pWidth)
+            try {
+                val fallbackPages = if (mode == ProjectMode.BATCH_PAPER_SAVER) {
+                    LayoutEngine.computeMixedBatchLayout(batchItems, altSettings)
+                } else {
+                    LayoutEngine.computeLayout(unitSize, q, altSettings)
                 }
-            } else {
-                val altSettings = settings.copy(pageWidthCm = pHeight, pageHeightCm = pWidth)
-                try {
-                    computedPages = LayoutEngine.computeLayout(unitSize, q, altSettings)
-                    pageOrientation = PageOrientation.PORTRAIT
-                    return true
-                } catch (e2: LayoutException) {
-                    // Both failed
-                }
+                pageOrientation = if (pageOrientation == PageOrientation.PORTRAIT) PageOrientation.LANDSCAPE else PageOrientation.PORTRAIT
+                layoutState = LayoutComputationState.Ready(fallbackPages)
+                return true
+            } catch (_: LayoutException) {
+                // Both orientations failed
             }
 
-            isLayoutTooLargeError = true
-            layoutEngineErrorText = e.message ?: "The configured layout exceeds available paper space."
+            layoutState = LayoutComputationState.Error(
+                e.message ?: "The configured layout exceeds available paper space."
+            )
             return false
         }
     }
@@ -548,17 +605,54 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
 
     fun handlePhotoSelected(uri: Uri, isPhotoA: Boolean, context: Context, bitmap: Bitmap) {
         val savedUri = saveBitmapToLocalFile(context, bitmap, if (isPhotoA) "original_source_a" else "original_source_b")
-        if (savedUri != null) {
-            if (isPhotoA) {
-                photoAUri = savedUri
-            } else {
-                photoBUri = savedUri
+        val targetUri = savedUri ?: uri
+        if (isPhotoA) {
+            photoAUri = targetUri
+        } else {
+            photoBUri = targetUri
+        }
+    }
+
+    fun proceedAfterPhotoConfirmed(isPhotoA: Boolean) {
+        val currentBmp = if (isPhotoA) cropABitmap else cropBBitmap
+        if (currentBmp == null) return
+
+        if (isPhotoA) {
+            when (mode) {
+                ProjectMode.SINGLE, ProjectMode.BATCH_PAPER_SAVER -> {
+                    finalUnitBitmap = currentBmp
+                    if (computeCurrentLayout()) {
+                        wizardStep = WizardStep.PREVIEW
+                    }
+                }
+                ProjectMode.JOINT, ProjectMode.MULTI_PERSON, ProjectMode.ID_CARD -> {
+                    wizardStep = WizardStep.PHOTO_B
+                }
             }
         } else {
-            if (isPhotoA) {
-                photoAUri = uri
-            } else {
-                photoBUri = uri
+            when (mode) {
+                ProjectMode.MULTI_PERSON -> {
+                    finalUnitBitmap = cropABitmap ?: currentBmp
+                    if (computeCurrentLayout()) {
+                        wizardStep = WizardStep.PREVIEW
+                    }
+                }
+                ProjectMode.ID_CARD -> {
+                    generateJointComposite()
+                    if (computeCurrentLayout()) {
+                        wizardStep = WizardStep.PREVIEW
+                    }
+                }
+                ProjectMode.JOINT -> {
+                    generateJointComposite()
+                    wizardStep = WizardStep.JOINT_COMPOSE
+                }
+                ProjectMode.SINGLE, ProjectMode.BATCH_PAPER_SAVER -> {
+                    finalUnitBitmap = cropABitmap ?: currentBmp
+                    if (computeCurrentLayout()) {
+                        wizardStep = WizardStep.PREVIEW
+                    }
+                }
             }
         }
     }
@@ -567,38 +661,11 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
         if (isPhotoA) {
             cropABitmap = bitmap
             savedCropAUriCache = null
-            if (mode == ProjectMode.SINGLE || mode == ProjectMode.BATCH_PAPER_SAVER) {
-                finalUnitBitmap = bitmap
-                // Proceed directly to preview
-                val success = computeCurrentLayout()
-                if (success) {
-                    currentStep = 6
-                }
-            } else {
-                // Joint or Multi-Person or ID Card Mode -> choose photo B now
-                currentStep = 4
-            }
         } else {
             cropBBitmap = bitmap
             savedCropBUriCache = null
-            // Both picked! 
-            if (mode == ProjectMode.MULTI_PERSON) {
-                finalUnitBitmap = cropABitmap ?: cropBBitmap
-                val success = computeCurrentLayout()
-                if (success) {
-                    currentStep = 6
-                }
-            } else if (mode == ProjectMode.ID_CARD) {
-                generateJointComposite()
-                val success = computeCurrentLayout()
-                if (success) {
-                    currentStep = 6
-                }
-            } else {
-                generateJointComposite()
-                currentStep = 5
-            }
         }
+        proceedAfterPhotoConfirmed(isPhotoA)
     }
 
     fun generateJointComposite() {
@@ -632,9 +699,8 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
     }
 
     fun onJointCompositeApproved() {
-        val success = computeCurrentLayout()
-        if (success) {
-            currentStep = 6
+        if (computeCurrentLayout()) {
+            wizardStep = WizardStep.PREVIEW
         }
     }
 
@@ -684,9 +750,8 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
     }
 
     fun saveProjectPdf(context: Context, targetUri: Uri) {
-        if (isSavingPdf) return
-        isSavingPdf = true
-        saveSuccessMessage = null
+        if (pdfExportState is PdfExportState.Compiling) return
+        pdfExportState = PdfExportState.Compiling
 
         viewModelScope.launch {
             try {
@@ -736,7 +801,7 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
                     )
 
                     if (success) {
-                        generatedPdfUri = targetUri
+                        hydratedPdfUri = targetUri
 
                         // Securely preserve cropped portrait photos in clean internal app storage once per crop
                         val savedPhotoAUri = savedCropAUriCache ?: cropABitmap?.let { bmp ->
@@ -788,16 +853,19 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
                             currentProjectId = insertedId
                         }
 
-                        saveSuccessMessage = "PDF exported and project saved to history successfully!"
+                        pdfExportState = PdfExportState.Success(
+                            uri = targetUri,
+                            message = "PDF exported and project saved to history successfully!"
+                        )
                     } else {
-                        saveSuccessMessage = "Failed to compile the PDF document."
+                        pdfExportState = PdfExportState.Error("Failed to compile the PDF document.")
                     }
+                } else {
+                    pdfExportState = PdfExportState.Error("No photo or layout pages available to compile.")
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                saveSuccessMessage = "Error saving PDF: ${e.message}"
-            } finally {
-                isSavingPdf = false
+                pdfExportState = PdfExportState.Error("Error saving PDF: ${e.message}")
             }
         }
     }
@@ -834,10 +902,11 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
                 jointDividerColor = project.dividerColor
 
                 if (!project.pdfFilePath.isNullOrBlank()) {
-                    generatedPdfUri = Uri.parse(project.pdfFilePath)
+                    hydratedPdfUri = Uri.parse(project.pdfFilePath)
                 } else {
-                    generatedPdfUri = null
+                    hydratedPdfUri = null
                 }
+                pdfExportState = PdfExportState.Idle
 
                 // Load cached bitmaps back dynamically
                 photoAUri = project.photoAUri?.let { Uri.parse(it) }
@@ -854,6 +923,7 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
                 if (mode == ProjectMode.SINGLE || mode == ProjectMode.BATCH_PAPER_SAVER) {
                     finalUnitBitmap = cropABitmap
                 } else if (mode == ProjectMode.MULTI_PERSON) {
+                    syncMultiPersonQuantities()
                     finalUnitBitmap = cropABitmap ?: cropBBitmap
                 } else {
                     generateJointComposite()
@@ -861,7 +931,7 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
 
                 computeCurrentLayout()
                 initHistory()
-                currentStep = 7 // Go directly to export screen with fully hydrated and valid states
+                wizardStep = WizardStep.EXPORT // Go directly to export screen with fully hydrated and valid states
             } catch (e: Exception) {
                 e.printStackTrace()
                 startNewProject()

@@ -58,6 +58,11 @@ object PdfExporter {
             isAntiAlias = true
         }
 
+        val whiteCellPaint = Paint().apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+
         val borderPaint = Paint().apply {
             color = settings.cuttingGuideColor
             style = Paint.Style.STROKE
@@ -78,6 +83,9 @@ object PdfExporter {
                 val pageInfo = PdfDocument.PageInfo.Builder(pWidthPt, pHeightPt, pageLayout.pageIndex).create()
                 val page = pdfDocument.startPage(pageInfo)
                 val canvas = page.canvas
+
+                // Pure white sheet background
+                canvas.drawRect(0f, 0f, pWidthPt.toFloat(), pHeightPt.toFloat(), whiteCellPaint)
 
                 if (isLayoutLandscape) {
                     // Rotate the landscape coordinate system 90 degrees clockwise to fit onto the portrait A4 canvas
@@ -101,6 +109,9 @@ object PdfExporter {
 
                     val cellWPt = cellW * CM_TO_PT
                     val cellHPt = cellH * CM_TO_PT
+
+                    // Pure white cell backing
+                    canvas.drawRect(xPt, yPt, xPt + cellWPt, yPt + cellHPt, whiteCellPaint)
 
                     val globalIndex = placementsCountBefore + placementIndex
                     val activeBmp = if (mode == "MULTI_PERSON") {

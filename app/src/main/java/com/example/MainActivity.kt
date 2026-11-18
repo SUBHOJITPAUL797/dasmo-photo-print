@@ -49,15 +49,13 @@ class MainActivity : ComponentActivity() {
                 val authViewModel: AuthViewModel = viewModel()
                 val context = LocalContext.current
                 val sharedPrefs = remember { context.getSharedPreferences("auth_prefs", Context.MODE_PRIVATE) }
-                var showAdminDashboard by remember { mutableStateOf(false) }
-
-                var updateInfo by remember { mutableStateOf<UpdateChecker.UpdateInfo?>(null) }
-                var showUpdateDialog by remember { mutableStateOf(false) }
+                var activeArea by remember { mutableStateOf(AuthenticatedAreaRoute.STUDIO_WIZARD) }
+                var updatePromptState by remember { mutableStateOf<AppUpdatePromptState>(AppUpdatePromptState.Hidden) }
 
                 val performFullSignOut: () -> Unit = {
                     sharedPrefs.edit().clear().apply()
-                    showAdminDashboard = false
-                    viewModel.currentStep = 0
+                    activeArea = AuthenticatedAreaRoute.STUDIO_WIZARD
+                    viewModel.navigateToStep(com.example.domain.model.WizardStep.HOME)
                     authViewModel.logout(context)
                 }
 
@@ -71,8 +69,7 @@ class MainActivity : ComponentActivity() {
                     try {
                         val info = UpdateChecker.checkForUpdates(context)
                         if (info.hasUpdate) {
-                            updateInfo = info
-                            showUpdateDialog = true
+                            updatePromptState = AppUpdatePromptState.Visible(info)
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
@@ -205,12 +202,14 @@ class MainActivity : ComponentActivity() {
 
                         is AuthState.Authenticated -> {
                             val user = currentAuthState.user
-                            val isUserExpired = !user.isAdmin && user.expiryTimestamp > 0L && System.currentTimeMillis() > user.expiryTimestamp
-                            val isStrictlyApproved = user.isAdmin || (user.isApproved && user.status == "approved")
+                            val lifecycleStatus = user.resolveLifecycleStatus(
+                                nowMs = System.currentTimeMillis(),
+                                superAdminEmail = AuthViewModel.SUPER_ADMIN_EMAIL
+                            )
 
-                            // Double runtime security gate: never allow unapproved or expired users into MainContent
-                            when {
-                                !user.isAdmin && user.status == "rejected" -> {
+                            // Double runtime security gate using explicit AccountLifecycleStatus state machine
+                            when (lifecycleStatus) {
+                                com.example.domain.model.AccountLifecycleStatus.REVOKED -> {
                                     AccessRevokedScreen(
                                         user = user,
                                         onCheckStatusNow = { authViewModel.login(context, user.email) },
@@ -218,7 +217,7 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
 
-                                !isStrictlyApproved -> {
+                                com.example.domain.model.AccountLifecycleStatus.PENDING -> {
                                     PendingApprovalScreen(
                                         user = user,
                                         onCheckStatusNow = { authViewModel.login(context, user.email) },
@@ -226,7 +225,7 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
 
-                                isUserExpired -> {
+                                com.example.domain.model.AccountLifecycleStatus.EXPIRED -> {
                                     PlanExpiredScreen(
                                         user = user,
                                         onCheckStatusNow = { authViewModel.login(context, user.email) },
@@ -234,26 +233,35 @@ class MainActivity : ComponentActivity() {
                                     )
                                 }
 
-                                else -> {
+                                com.example.domain.model.AccountLifecycleStatus.SUPER_ADMIN,
+                                com.example.domain.model.AccountLifecycleStatus.ADMIN,
+                                com.example.domain.model.AccountLifecycleStatus.ACTIVE -> {
                                     viewModel.isApproved = true
                                     viewModel.isExpired = false
 
-                                    if (showAdminDashboard && user.isAdmin) {
-                                        androidx.activity.compose.BackHandler {
-                                            showAdminDashboard = false
+                                    when (activeArea) {
+                                        AuthenticatedAreaRoute.ADMIN_DASHBOARD -> {
+                                            if (user.isAdmin) {
+                                                androidx.activity.compose.BackHandler {
+                                                    activeArea = AuthenticatedAreaRoute.STUDIO_WIZARD
+                                                }
+                                                AdminDashboardScreen(
+                                                    authViewModel = authViewModel,
+                                                    onBack = { activeArea = AuthenticatedAreaRoute.STUDIO_WIZARD }
+                                                )
+                                            } else {
+                                                activeArea = AuthenticatedAreaRoute.STUDIO_WIZARD
+                                            }
                                         }
-                                        AdminDashboardScreen(
-                                            authViewModel = authViewModel,
-                                            onBack = { showAdminDashboard = false }
-                                        )
-                                    } else {
-                                        Box(modifier = Modifier.fillMaxSize()) {
-                                            MainContent(
-                                                viewModel = viewModel,
-                                                isAdmin = user.isAdmin,
-                                                onAdminClicked = { showAdminDashboard = true },
-                                                onLogoutClicked = performFullSignOut
-                                            )
+                                        AuthenticatedAreaRoute.STUDIO_WIZARD -> {
+                                            Box(modifier = Modifier.fillMaxSize()) {
+                                                MainContent(
+                                                    viewModel = viewModel,
+                                                    isAdmin = user.isAdmin,
+                                                    onAdminClicked = { activeArea = AuthenticatedAreaRoute.ADMIN_DASHBOARD },
+                                                    onLogoutClicked = performFullSignOut
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -262,15 +270,28 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (showUpdateDialog && updateInfo != null) {
-                    InAppUpdateDialog(
-                        updateInfo = updateInfo!!,
-                        onDismiss = { showUpdateDialog = false }
-                    )
+                when (val prompt = updatePromptState) {
+                    is AppUpdatePromptState.Hidden -> Unit
+                    is AppUpdatePromptState.Visible -> {
+                        InAppUpdateDialog(
+                            updateInfo = prompt.info,
+                            onDismiss = { updatePromptState = AppUpdatePromptState.Hidden }
+                        )
+                    }
                 }
             }
         }
     }
+}
+
+private enum class AuthenticatedAreaRoute {
+    STUDIO_WIZARD,
+    ADMIN_DASHBOARD
+}
+
+private sealed class AppUpdatePromptState {
+    object Hidden : AppUpdatePromptState()
+    data class Visible(val info: UpdateChecker.UpdateInfo) : AppUpdatePromptState()
 }
 
 @Composable
@@ -282,34 +303,18 @@ fun MainContent(
 ) {
     val context = LocalContext.current
 
-    // Handle system back gesture across all wizard steps
-    androidx.activity.compose.BackHandler(enabled = viewModel.currentStep > 0) {
-        when (viewModel.currentStep) {
-            1 -> viewModel.currentStep = 0
-            2 -> viewModel.currentStep = 1
-            3 -> viewModel.currentStep = 2
-            4 -> viewModel.currentStep = 3
-            5 -> viewModel.currentStep = 4
-            6 -> {
-                if (viewModel.mode == ProjectMode.JOINT) {
-                    viewModel.currentStep = 5
-                } else if (viewModel.mode == ProjectMode.MULTI_PERSON || viewModel.mode == ProjectMode.ID_CARD) {
-                    viewModel.currentStep = 4
-                } else {
-                    viewModel.currentStep = 3
-                }
-            }
-            7 -> viewModel.currentStep = 6
-        }
+    // Handle system back gesture across all wizard steps via explicit state transition
+    androidx.activity.compose.BackHandler(enabled = viewModel.wizardStep != com.example.domain.model.WizardStep.HOME) {
+        viewModel.navigateBack()
     }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
     ) {
-        // Router state switcher
-        when (viewModel.currentStep) {
-            0 -> {
+        // Exhaustive WizardStep router state machine
+        when (viewModel.wizardStep) {
+            com.example.domain.model.WizardStep.HOME -> {
                 HomeScreen(
                     viewModel = viewModel,
                     onNewProjectClicked = {
@@ -323,82 +328,75 @@ fun MainContent(
                     onLogoutClicked = onLogoutClicked
                 )
             }
-            1 -> {
+            com.example.domain.model.WizardStep.MODE_SELECT -> {
                 ModeSelectScreen(
                     viewModel = viewModel,
                     onBackClicked = {
-                        viewModel.currentStep = 0
+                        viewModel.navigateBack()
                     }
                 )
             }
-            2 -> {
+            com.example.domain.model.WizardStep.SIZE_INPUT -> {
                 SizeInputScreen(
                     viewModel = viewModel,
                     onBackClicked = {
-                        viewModel.currentStep = 1
+                        viewModel.navigateBack()
                     },
                     onNextClicked = {
-                        val success = viewModel.computeCurrentLayout()
-                        if (success) {
-                            viewModel.currentStep = 3
+                        if (viewModel.computeCurrentLayout()) {
+                            viewModel.navigateToStep(com.example.domain.model.WizardStep.PHOTO_A)
                         }
                     }
                 )
             }
-            3 -> {
+            com.example.domain.model.WizardStep.PHOTO_A -> {
                 PhotoSelectionScreen(
                     viewModel = viewModel,
                     isPhotoA = true,
                     onBackClicked = {
-                        viewModel.currentStep = 2
+                        viewModel.navigateBack()
                     }
                 )
             }
-            4 -> {
+            com.example.domain.model.WizardStep.PHOTO_B -> {
                 PhotoSelectionScreen(
                     viewModel = viewModel,
                     isPhotoA = false,
                     onBackClicked = {
-                        viewModel.currentStep = 3
+                        viewModel.navigateBack()
                     }
                 )
             }
-            5 -> {
+            com.example.domain.model.WizardStep.JOINT_COMPOSE -> {
                 JointComposeScreen(
                     viewModel = viewModel,
                     onBackClicked = {
-                        viewModel.currentStep = 4
+                        viewModel.navigateBack()
                     },
                     onNextClicked = {
                         viewModel.onJointCompositeApproved()
                     }
                 )
             }
-            6 -> {
+            com.example.domain.model.WizardStep.PREVIEW -> {
                 PreviewScreen(
                     viewModel = viewModel,
                     onBackClicked = {
-                        if (viewModel.mode == ProjectMode.JOINT) {
-                            viewModel.currentStep = 5
-                        } else if (viewModel.mode == ProjectMode.MULTI_PERSON || viewModel.mode == ProjectMode.ID_CARD) {
-                            viewModel.currentStep = 4
-                        } else {
-                            viewModel.currentStep = 3
-                        }
+                        viewModel.navigateBack()
                     },
                     onApproved = {
-                        viewModel.currentStep = 7
+                        viewModel.navigateToStep(com.example.domain.model.WizardStep.EXPORT)
                     }
                 )
             }
-            7 -> {
+            com.example.domain.model.WizardStep.EXPORT -> {
                 ExportScreen(
                     viewModel = viewModel,
                     onBackClicked = {
-                        viewModel.currentStep = 6
+                        viewModel.navigateBack()
                     },
                     onFinishClicked = {
-                        viewModel.currentStep = 0
+                        viewModel.navigateToStep(com.example.domain.model.WizardStep.HOME)
                     }
                 )
             }

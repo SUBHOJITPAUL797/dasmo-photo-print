@@ -24,7 +24,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.R
 import com.example.ui.ProjectViewModel
+import com.example.ui.components.ClayWizardStepBanner
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,34 +104,14 @@ fun JointComposeScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Step marker indicator
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Step 5 of 5",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                LinearProgressIndicator(
-                    progress = { 1.0f },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)),
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-
-            Text(
-                text = "Balance & Combine Side-by-Side",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
+            // 3D Claymorphic Step Header Banner
+            ClayWizardStepBanner(
+                stepLabel = "STEP 5 OF 5",
+                title = "Balance & Combine Side-by-Side",
+                subtitle = "Fine-tune split ratio & optional center divider before sheet layout",
+                progress = 0.9f,
+                accentColor = MaterialTheme.colorScheme.primary,
+                artworkRes = R.drawable.img_clay_passport
             )
 
             // Dynamic Composition Preview Box

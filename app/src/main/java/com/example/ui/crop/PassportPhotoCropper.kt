@@ -42,6 +42,19 @@ import com.google.mlkit.vision.common.InputImage
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 
+private enum class CropperToolTab {
+    FRAME_ZOOM,
+    BACKGROUND_KEY,
+    STUDIO_LIGHT
+}
+
+private sealed class BackgroundKeyMode {
+    object Original : BackgroundKeyMode()
+    data class EyedropperSampling(val previousMode: BackgroundKeyMode = Original) : BackgroundKeyMode()
+    data class ColorKeyed(val sampledColor: Int, val seedFraction: Pair<Float, Float>) : BackgroundKeyMode()
+    data class SmartAiKeyed(val isProcessing: Boolean = false, val foregroundBitmap: Bitmap? = null) : BackgroundKeyMode()
+}
+
 @Composable
 fun PassportPhotoCropper(
     sourceBitmap: Bitmap,
@@ -52,11 +65,10 @@ fun PassportPhotoCropper(
 ) {
     var rawBitmap by remember { mutableStateOf(sourceBitmap) }
 
-    // Color Replacement State
-    var targetReplacementBgColor by remember { mutableStateOf(Color.WHITE) } // Replacement color
-    var colorToReplace by remember { mutableStateOf<Int?>(null) } // Color sampled to be replaced
-    var replaceTolerance by remember { mutableStateOf(0.18f) } // default L2 tolerance (around 80/441)
-    var replaceSeedFraction by remember { mutableStateOf<Pair<Float, Float>?>(null) } // Fraction coordinates of sampled pixel
+    // Explicit Background Replacement & Keying State Machine
+    var targetReplacementBgColor by remember { mutableStateOf(Color.WHITE) }
+    var replaceTolerance by remember { mutableStateOf(0.18f) }
+    var backgroundKeyMode by remember { mutableStateOf<BackgroundKeyMode>(BackgroundKeyMode.Original) }
 
     // Studio Enhancements (Brightness, Contrast, Saturation)
     var brightness by remember { mutableStateOf(0.0f) }
@@ -65,15 +77,10 @@ fun PassportPhotoCropper(
     var isBlackAndWhite by remember { mutableStateOf(false) }
     var isSilhouetteVisible by remember { mutableStateOf(showHeadSilhouette) }
 
-    // ML Kit Subject Segmentation State
-    var useMLKitSegmentation by remember { mutableStateOf(false) }
-    var mlKitForegroundBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var isSegmenting by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
-    // UI Tab selection: 0 = Adjust Frame, 1 = Erase/Replace BG, 2 = Enhancements
-    var activeTab by remember { mutableStateOf(0) }
-    var isSamplingMode by remember { mutableStateOf(false) } // Eye dropper activation status
+    // Explicit Tool Tab State Machine
+    var activeTab by remember { mutableStateOf(CropperToolTab.FRAME_ZOOM) }
 
     // Navigation and status
     var scale by remember { mutableStateOf(1.0f) }
@@ -81,9 +88,6 @@ fun PassportPhotoCropper(
 
     var viewWidth by remember { mutableStateOf(0f) }
     var viewHeight by remember { mutableStateOf(0f) }
-
-    // Visual bounds
-    val isPortrait = aspectRatio < 1f
 
     // Quick Rotate 90 degree logic
     val rotateBitmap = {
@@ -130,10 +134,11 @@ fun PassportPhotoCropper(
         }
     }
 
-    // ML Kit Subject Segmentation processing
-    LaunchedEffect(useMLKitSegmentation, filteredThumbnail) {
-        if (useMLKitSegmentation) {
-            isSegmenting = true
+    // ML Kit Subject Segmentation processing when SmartAiKeyed mode is active
+    val isSmartAiMode = backgroundKeyMode is BackgroundKeyMode.SmartAiKeyed
+    LaunchedEffect(isSmartAiMode, filteredThumbnail) {
+        if (isSmartAiMode) {
+            backgroundKeyMode = BackgroundKeyMode.SmartAiKeyed(isProcessing = true, foregroundBitmap = null)
             try {
                 val options = SubjectSegmenterOptions.Builder()
                     .enableForegroundBitmap()
@@ -141,56 +146,71 @@ fun PassportPhotoCropper(
                 val segmenter = SubjectSegmentation.getClient(options)
                 val image = InputImage.fromBitmap(filteredThumbnail, 0)
                 val result = segmenter.process(image).await()
-                mlKitForegroundBitmap = result.foregroundBitmap
+                if (backgroundKeyMode is BackgroundKeyMode.SmartAiKeyed) {
+                    backgroundKeyMode = BackgroundKeyMode.SmartAiKeyed(
+                        isProcessing = false,
+                        foregroundBitmap = result.foregroundBitmap
+                    )
+                }
             } catch (e: Exception) {
-                mlKitForegroundBitmap = null
-            } finally {
-                isSegmenting = false
+                if (backgroundKeyMode is BackgroundKeyMode.SmartAiKeyed) {
+                    backgroundKeyMode = BackgroundKeyMode.SmartAiKeyed(isProcessing = false, foregroundBitmap = null)
+                }
             }
-        } else {
-            mlKitForegroundBitmap = null
         }
     }
 
-    // Reactively compute the current displayed bitmap with background replacement on the FILTERED THUMBNAIL for buttery-smooth slider & frame updates
-    val displayBitmap = remember(filteredThumbnail, colorToReplace, targetReplacementBgColor, replaceTolerance, replaceSeedFraction, useMLKitSegmentation, mlKitForegroundBitmap) {
-        if (useMLKitSegmentation && mlKitForegroundBitmap != null) {
-            val bgReplaced = Bitmap.createBitmap(filteredThumbnail.width, filteredThumbnail.height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bgReplaced)
-            canvas.drawColor(targetReplacementBgColor)
-            
-            // Draw the foreground bitmap scaled to match filteredThumbnail size if needed
-            val fg = mlKitForegroundBitmap!!
-            val matrix = Matrix()
-            val scaleX = filteredThumbnail.width.toFloat() / fg.width
-            val scaleY = filteredThumbnail.height.toFloat() / fg.height
-            matrix.postScale(scaleX, scaleY)
-            val paint = Paint().apply {
-                isAntiAlias = true
-                isFilterBitmap = true
+    // Reactively compute the current displayed bitmap with background replacement on the FILTERED THUMBNAIL
+    val displayBitmap = remember(filteredThumbnail, backgroundKeyMode, targetReplacementBgColor, replaceTolerance) {
+        val effectiveMode = when (val mode = backgroundKeyMode) {
+            is BackgroundKeyMode.EyedropperSampling -> mode.previousMode
+            else -> mode
+        }
+        when (effectiveMode) {
+            is BackgroundKeyMode.SmartAiKeyed -> {
+                val fg = effectiveMode.foregroundBitmap
+                if (fg != null) {
+                    val bgReplaced = Bitmap.createBitmap(filteredThumbnail.width, filteredThumbnail.height, Bitmap.Config.ARGB_8888)
+                    val canvas = Canvas(bgReplaced)
+                    canvas.drawColor(targetReplacementBgColor)
+                    val matrix = Matrix()
+                    val scaleX = filteredThumbnail.width.toFloat() / fg.width
+                    val scaleY = filteredThumbnail.height.toFloat() / fg.height
+                    matrix.postScale(scaleX, scaleY)
+                    val paint = Paint().apply {
+                        isAntiAlias = true
+                        isFilterBitmap = true
+                    }
+                    canvas.drawBitmap(fg, matrix, paint)
+                    bgReplaced
+                } else {
+                    filteredThumbnail
+                }
             }
-            canvas.drawBitmap(fg, matrix, paint)
-            
-            bgReplaced
-        } else if (colorToReplace != null) {
-            val fraction = replaceSeedFraction ?: Pair(0.02f, 0.02f)
-            val seedX = (filteredThumbnail.width * fraction.first).toInt().coerceIn(0, filteredThumbnail.width - 1)
-            val seedY = (filteredThumbnail.height * fraction.second).toInt().coerceIn(0, filteredThumbnail.height - 1)
-            BitmapUtils.replaceBackgroundColor(
-                src = filteredThumbnail,
-                colorToReplace = colorToReplace!!,
-                replacementColor = targetReplacementBgColor,
-                tolerance = replaceTolerance,
-                seedX = seedX,
-                seedY = seedY
-            )
-        } else {
-            filteredThumbnail
+            is BackgroundKeyMode.ColorKeyed -> {
+                val fraction = effectiveMode.seedFraction
+                val seedX = (filteredThumbnail.width * fraction.first).toInt().coerceIn(0, filteredThumbnail.width - 1)
+                val seedY = (filteredThumbnail.height * fraction.second).toInt().coerceIn(0, filteredThumbnail.height - 1)
+                BitmapUtils.replaceBackgroundColor(
+                    src = filteredThumbnail,
+                    colorToReplace = effectiveMode.sampledColor,
+                    replacementColor = targetReplacementBgColor,
+                    tolerance = replaceTolerance,
+                    seedX = seedX,
+                    seedY = seedY
+                )
+            }
+            is BackgroundKeyMode.Original,
+            is BackgroundKeyMode.EyedropperSampling -> filteredThumbnail
         }
     }
 
     androidx.activity.compose.BackHandler {
-        onCancel()
+        if (backgroundKeyMode is BackgroundKeyMode.EyedropperSampling) {
+            backgroundKeyMode = (backgroundKeyMode as BackgroundKeyMode.EyedropperSampling).previousMode
+        } else {
+            onCancel()
+        }
     }
 
     Scaffold(
@@ -250,10 +270,10 @@ fun PassportPhotoCropper(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Button(
-                            onClick = { activeTab = 0 },
+                            onClick = { activeTab = CropperToolTab.FRAME_ZOOM },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (activeTab == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = if (activeTab == 0) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                containerColor = if (activeTab == CropperToolTab.FRAME_ZOOM) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = if (activeTab == CropperToolTab.FRAME_ZOOM) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                             ),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.weight(1f)
@@ -264,10 +284,10 @@ fun PassportPhotoCropper(
                         }
 
                         Button(
-                            onClick = { activeTab = 1 },
+                            onClick = { activeTab = CropperToolTab.BACKGROUND_KEY },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (activeTab == 1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = if (activeTab == 1) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                containerColor = if (activeTab == CropperToolTab.BACKGROUND_KEY) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = if (activeTab == CropperToolTab.BACKGROUND_KEY) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                             ),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.weight(1.1f)
@@ -278,10 +298,10 @@ fun PassportPhotoCropper(
                         }
 
                         Button(
-                            onClick = { activeTab = 2 },
+                            onClick = { activeTab = CropperToolTab.STUDIO_LIGHT },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (activeTab == 2) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = if (activeTab == 2) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                containerColor = if (activeTab == CropperToolTab.STUDIO_LIGHT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                contentColor = if (activeTab == CropperToolTab.STUDIO_LIGHT) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                             ),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.weight(1.2f)
@@ -292,9 +312,9 @@ fun PassportPhotoCropper(
                         }
                     }
 
-                    // Conditional controls layout matching tab state
+                    // Exhaustive controls layout matching CropperToolTab state machine
                     when (activeTab) {
-                        0 -> {
+                        CropperToolTab.FRAME_ZOOM -> {
                             // ZOOM & BIOMETRIC GUIDELINES CONTROLS
                             Column(
                                 modifier = Modifier
@@ -359,7 +379,8 @@ fun PassportPhotoCropper(
                                 }
                             }
                         }
-                        1 -> {
+
+                        CropperToolTab.BACKGROUND_KEY -> {
                             // COLOR KEYING & BACKGROUND REPLACEMENT CONTROLS
                             Column(
                                 modifier = Modifier
@@ -372,9 +393,8 @@ fun PassportPhotoCropper(
                                     selectedColor = targetReplacementBgColor,
                                     onColorSelected = { selected ->
                                         targetReplacementBgColor = selected
-                                        // If background has not been sampled/removed yet, Auto-Detect background instantly to make it visual
-                                        if (colorToReplace == null && !useMLKitSegmentation) {
-                                            useMLKitSegmentation = true
+                                        if (backgroundKeyMode is BackgroundKeyMode.Original) {
+                                            backgroundKeyMode = BackgroundKeyMode.SmartAiKeyed(isProcessing = true)
                                         }
                                     }
                                 )
@@ -402,31 +422,43 @@ fun PassportPhotoCropper(
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
 
-                                            if (colorToReplace != null || useMLKitSegmentation) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                                ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(8.dp)
-                                                            .clip(CircleShape)
-                                                            .background(MaterialTheme.colorScheme.primary)
-                                                    )
+                                            when (backgroundKeyMode) {
+                                                is BackgroundKeyMode.Original -> {
                                                     Text(
-                                                        text = if (useMLKitSegmentation) "Smart Active" else "Active Remover",
+                                                        text = "Inactive",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                                    )
+                                                }
+                                                is BackgroundKeyMode.EyedropperSampling -> {
+                                                    Text(
+                                                        text = "Tap Photo Background...",
                                                         style = MaterialTheme.typography.labelSmall,
                                                         fontWeight = FontWeight.Bold,
                                                         color = MaterialTheme.colorScheme.primary
                                                     )
                                                 }
-                                            } else {
-                                                Text(
-                                                    text = "Inactive",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    fontWeight = FontWeight.Medium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                                )
+                                                is BackgroundKeyMode.ColorKeyed,
+                                                is BackgroundKeyMode.SmartAiKeyed -> {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                    ) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(8.dp)
+                                                                .clip(CircleShape)
+                                                                .background(MaterialTheme.colorScheme.primary)
+                                                        )
+                                                        Text(
+                                                            text = if (backgroundKeyMode is BackgroundKeyMode.SmartAiKeyed) "Smart Active" else "Active Remover",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.primary
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
 
@@ -435,11 +467,11 @@ fun PassportPhotoCropper(
                                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
+                                            val isSegmentingNow = (backgroundKeyMode as? BackgroundKeyMode.SmartAiKeyed)?.isProcessing == true
                                             // Smart Remove (ML Kit) Button
                                             Button(
                                                 onClick = {
-                                                    useMLKitSegmentation = true
-                                                    colorToReplace = null
+                                                    backgroundKeyMode = BackgroundKeyMode.SmartAiKeyed(isProcessing = true)
                                                 },
                                                 shape = RoundedCornerShape(8.dp),
                                                 colors = ButtonDefaults.buttonColors(
@@ -448,7 +480,7 @@ fun PassportPhotoCropper(
                                                 ),
                                                 modifier = Modifier.weight(1.2f)
                                             ) {
-                                                if (isSegmenting) {
+                                                if (isSegmentingNow) {
                                                     CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MaterialTheme.colorScheme.primary, strokeWidth = 2.dp)
                                                 } else {
                                                     Icon(
@@ -462,14 +494,19 @@ fun PassportPhotoCropper(
                                             }
 
                                             // Manual Custom Eyedropper Button
+                                            val isSamplingNow = backgroundKeyMode is BackgroundKeyMode.EyedropperSampling
                                             OutlinedButton(
-                                                onClick = { 
-                                                    isSamplingMode = true
-                                                    useMLKitSegmentation = false 
+                                                onClick = {
+                                                    val prev = if (backgroundKeyMode is BackgroundKeyMode.EyedropperSampling) {
+                                                        (backgroundKeyMode as BackgroundKeyMode.EyedropperSampling).previousMode
+                                                    } else {
+                                                        backgroundKeyMode
+                                                    }
+                                                    backgroundKeyMode = BackgroundKeyMode.EyedropperSampling(prev)
                                                 },
                                                 shape = RoundedCornerShape(8.dp),
                                                 colors = ButtonDefaults.outlinedButtonColors(
-                                                    contentColor = if (isSamplingMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                    contentColor = if (isSamplingNow) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                                 ),
                                                 modifier = Modifier.weight(1f)
                                             ) {
@@ -479,16 +516,14 @@ fun PassportPhotoCropper(
                                                     modifier = Modifier.size(16.dp)
                                                 )
                                                 Spacer(modifier = Modifier.width(6.dp))
-                                                Text(if (colorToReplace != null) "Re-Sample" else "Eyedropper", fontSize = 11.sp)
+                                                Text(if (backgroundKeyMode is BackgroundKeyMode.ColorKeyed) "Re-Sample" else "Eyedropper", fontSize = 11.sp)
                                             }
 
                                             // Reset/Undo Keying button if active
-                                            if (colorToReplace != null || useMLKitSegmentation) {
+                                            if (backgroundKeyMode !is BackgroundKeyMode.Original) {
                                                 IconButton(
                                                     onClick = {
-                                                        colorToReplace = null
-                                                        replaceSeedFraction = null
-                                                        useMLKitSegmentation = false
+                                                        backgroundKeyMode = BackgroundKeyMode.Original
                                                     },
                                                     modifier = Modifier
                                                         .size(40.dp)
@@ -507,8 +542,8 @@ fun PassportPhotoCropper(
                                             }
                                         }
 
-                                        // Tolerance slider if keying is active
-                                        if (colorToReplace != null) {
+                                        // Tolerance slider if color keying is active
+                                        if (backgroundKeyMode is BackgroundKeyMode.ColorKeyed) {
                                             Column(modifier = Modifier.padding(top = 4.dp)) {
                                                 Row(
                                                     modifier = Modifier.fillMaxWidth(),
@@ -546,7 +581,8 @@ fun PassportPhotoCropper(
                                 }
                             }
                         }
-                        2 -> {
+
+                        CropperToolTab.STUDIO_LIGHT -> {
                             // STUDIO ENHANCEMENTS & LIGHT ADJUSTMENTS
                             Column(
                                 modifier = Modifier
@@ -653,7 +689,7 @@ fun PassportPhotoCropper(
                                         modifier = Modifier.height(24.dp)
                                     )
                                 }
-                                
+
                                 // 4. Black & White Toggle
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -685,6 +721,10 @@ fun PassportPhotoCropper(
                             onClick = {
                                 if (viewWidth > 0 && viewHeight > 0) {
                                     coroutineScope.launch {
+                                        val effectiveKeyMode = when (val mode = backgroundKeyMode) {
+                                            is BackgroundKeyMode.EyedropperSampling -> mode.previousMode
+                                            else -> mode
+                                        }
                                         // Perform high-res cropping mathematically mapping display matrix to bitmap pixels
                                         val cropFrameH = if (viewWidth / viewHeight > aspectRatio) {
                                             viewHeight * 0.75f
@@ -700,7 +740,12 @@ fun PassportPhotoCropper(
                                         val targetW = targetH * aspectRatio
                                         val cropped = Bitmap.createBitmap(targetW.toInt(), targetH.toInt(), Bitmap.Config.ARGB_8888)
                                         val canvas = Canvas(cropped)
-                                        canvas.drawColor(if (useMLKitSegmentation || colorToReplace != null) targetReplacementBgColor else Color.WHITE)
+                                        canvas.drawColor(
+                                            if (effectiveKeyMode is BackgroundKeyMode.SmartAiKeyed || effectiveKeyMode is BackgroundKeyMode.ColorKeyed)
+                                                targetReplacementBgColor
+                                            else
+                                                Color.WHITE
+                                        )
 
                                         // Apply studio enhancements on raw high-res bitmap
                                         val filteredRaw = if (brightness != 0.0f || contrast != 1.0f || saturation != 1.0f || isBlackAndWhite) {
@@ -713,36 +758,39 @@ fun PassportPhotoCropper(
                                             rawBitmap
                                         }
 
-                                        // We want to apply background replacement on the FULL resolution filteredRaw on Confirm
-                                        val fullResSource = if (useMLKitSegmentation) {
-                                            isSegmenting = true
-                                            try {
-                                                val options = SubjectSegmenterOptions.Builder()
-                                                    .enableForegroundBitmap()
-                                                    .build()
-                                                val segmenter = SubjectSegmentation.getClient(options)
-                                                val image = InputImage.fromBitmap(filteredRaw, 0)
-                                                val result = segmenter.process(image).await()
-                                                result.foregroundBitmap ?: filteredRaw
-                                            } catch (e: Exception) {
-                                                filteredRaw
-                                            } finally {
-                                                isSegmenting = false
+                                        // Apply background replacement on the FULL resolution filteredRaw on Confirm
+                                        val fullResSource = when (effectiveKeyMode) {
+                                            is BackgroundKeyMode.SmartAiKeyed -> {
+                                                backgroundKeyMode = effectiveKeyMode.copy(isProcessing = true)
+                                                try {
+                                                    val options = SubjectSegmenterOptions.Builder()
+                                                        .enableForegroundBitmap()
+                                                        .build()
+                                                    val segmenter = SubjectSegmentation.getClient(options)
+                                                    val image = InputImage.fromBitmap(filteredRaw, 0)
+                                                    val result = segmenter.process(image).await()
+                                                    result.foregroundBitmap ?: filteredRaw
+                                                } catch (e: Exception) {
+                                                    filteredRaw
+                                                } finally {
+                                                    backgroundKeyMode = effectiveKeyMode.copy(isProcessing = false)
+                                                }
                                             }
-                                        } else if (colorToReplace != null) {
-                                            val fraction = replaceSeedFraction ?: Pair(0.02f, 0.02f)
-                                            val seedX = (filteredRaw.width * fraction.first).toInt().coerceIn(0, filteredRaw.width - 1)
-                                            val seedY = (filteredRaw.height * fraction.second).toInt().coerceIn(0, filteredRaw.height - 1)
-                                            BitmapUtils.replaceBackgroundColor(
-                                                src = filteredRaw,
-                                                colorToReplace = colorToReplace!!,
-                                                replacementColor = targetReplacementBgColor,
-                                                tolerance = replaceTolerance,
-                                                seedX = seedX,
-                                                seedY = seedY
-                                            )
-                                        } else {
-                                            filteredRaw
+                                            is BackgroundKeyMode.ColorKeyed -> {
+                                                val fraction = effectiveKeyMode.seedFraction
+                                                val seedX = (filteredRaw.width * fraction.first).toInt().coerceIn(0, filteredRaw.width - 1)
+                                                val seedY = (filteredRaw.height * fraction.second).toInt().coerceIn(0, filteredRaw.height - 1)
+                                                BitmapUtils.replaceBackgroundColor(
+                                                    src = filteredRaw,
+                                                    colorToReplace = effectiveKeyMode.sampledColor,
+                                                    replacementColor = targetReplacementBgColor,
+                                                    tolerance = replaceTolerance,
+                                                    seedX = seedX,
+                                                    seedY = seedY
+                                                )
+                                            }
+                                            is BackgroundKeyMode.Original,
+                                            is BackgroundKeyMode.EyedropperSampling -> filteredRaw
                                         }
 
                                         // Map display coordinates (view dimensions) back
@@ -808,7 +856,7 @@ fun PassportPhotoCropper(
                 .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.95f))
                 .pointerInput(Unit) {
                     detectTransformGestures(panZoomLock = true) { centroid, pan, zoom, _ ->
-                        if (!isSamplingMode) {
+                        if (backgroundKeyMode !is BackgroundKeyMode.EyedropperSampling) {
                             val oldScale = scale
                             val newScale = (scale * zoom).coerceIn(1.0f, 5.0f)
                             val actualZoom = if (oldScale > 0f) newScale / oldScale else 1f
@@ -911,13 +959,14 @@ fun PassportPhotoCropper(
                     }
                 }
 
-                // Transparent full-size Tap sampling overlays when eyedropper is active
-                if (isSamplingMode) {
+                // Transparent full-size Tap sampling overlays when eyedropper state is active
+                val samplingState = backgroundKeyMode as? BackgroundKeyMode.EyedropperSampling
+                if (samplingState != null) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.5f))
-                            .pointerInput(rawBitmap, viewWidth, viewHeight, scale, offset) {
+                            .pointerInput(rawBitmap, viewWidth, viewHeight, scale, offset, samplingState) {
                                 detectTapGestures { tapLoc ->
                                     val matrix = Matrix()
                                     matrix.postTranslate(-rawBitmap.width / 2f, -rawBitmap.height / 2f)
@@ -933,17 +982,19 @@ fun PassportPhotoCropper(
                                     matrix.postTranslate(viewWidth / 2f + offset.x, viewHeight / 2f + offset.y)
 
                                     val inverseMatrix = Matrix()
+                                    var nextMode: BackgroundKeyMode = samplingState.previousMode
                                     if (matrix.invert(inverseMatrix)) {
                                         val pts = floatArrayOf(tapLoc.x, tapLoc.y)
                                         inverseMatrix.mapPoints(pts)
                                         val bx = pts[0].toInt()
                                         val by = pts[1].toInt()
                                         if (bx in 0 until rawBitmap.width && by in 0 until rawBitmap.height) {
-                                            colorToReplace = rawBitmap.getPixel(bx, by)
-                                            replaceSeedFraction = Pair(bx.toFloat() / rawBitmap.width, by.toFloat() / rawBitmap.height)
+                                            val sampledPixel = rawBitmap.getPixel(bx, by)
+                                            val fraction = Pair(bx.toFloat() / rawBitmap.width, by.toFloat() / rawBitmap.height)
+                                            nextMode = BackgroundKeyMode.ColorKeyed(sampledPixel, fraction)
                                         }
                                     }
-                                    isSamplingMode = false
+                                    backgroundKeyMode = nextMode
                                 }
                             },
                         contentAlignment = Alignment.Center

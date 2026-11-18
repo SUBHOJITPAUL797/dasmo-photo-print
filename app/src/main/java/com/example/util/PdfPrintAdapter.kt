@@ -13,7 +13,11 @@ import android.print.PrintManager
 import java.io.FileInputStream
 import java.io.FileOutputStream
 
-class PdfPrintAdapter(private val context: Context, private val pdfUri: Uri) : PrintDocumentAdapter() {
+class PdfPrintAdapter(
+    private val context: Context,
+    private val pdfUri: Uri,
+    private val documentName: String = "PassportPhotos.pdf"
+) : PrintDocumentAdapter() {
     override fun onLayout(
         oldAttributes: PrintAttributes?,
         newAttributes: PrintAttributes?,
@@ -26,8 +30,10 @@ class PdfPrintAdapter(private val context: Context, private val pdfUri: Uri) : P
             return
         }
 
-        val info = PrintDocumentInfo.Builder("PassportPhotos.pdf")
+        val safeDocName = if (documentName.endsWith(".pdf", ignoreCase = true)) documentName else "$documentName.pdf"
+        val info = PrintDocumentInfo.Builder(safeDocName)
             .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+            .setPageCount(PrintDocumentInfo.PAGE_COUNT_UNKNOWN)
             .build()
 
         callback?.onLayoutFinished(info, true)
@@ -79,18 +85,20 @@ object PrintUtils {
     fun printPdf(context: Context, pdfUri: Uri, jobName: String = "DASMO PHOTO PRINT", isLandscape: Boolean = false) {
         try {
             val printManager = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager ?: return
-            // Since our compiled PDF files are now always physically Portrait oriented (with landscape content
+            // Since our compiled PDF files are always physically Portrait oriented (with landscape content
             // drawn rotated inside it), we always print as ISO_A4 Portrait to prevent Android Print Spooler
             // from rotating, squeezing, or cutting off the pages.
             val mediaSize = PrintAttributes.MediaSize.ISO_A4.asPortrait()
             val printAttributes = PrintAttributes.Builder()
                 .setMediaSize(mediaSize)
+                .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
                 .setResolution(PrintAttributes.Resolution("300dpi", "300 DPI", 300, 300))
                 .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
                 .build()
-            printManager.print(jobName, PdfPrintAdapter(context, pdfUri), printAttributes)
+            printManager.print(jobName, PdfPrintAdapter(context, pdfUri, jobName), printAttributes)
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 }
+

@@ -573,35 +573,29 @@ object BitmapUtils {
     fun applyBackdropColor(src: Bitmap, color: Int): Bitmap {
         val width = src.width
         val height = src.height
-        val out = src.copy(src.config ?: Bitmap.Config.ARGB_8888, true)
-        val pixels = IntArray(width * height)
-        out.getPixels(pixels, 0, width, 0, 0, width, height)
+        if (width <= 0 || height <= 0) return src
 
-        val targetR = (color shr 16) and 0xFF
-        val targetG = (color shr 8) and 0xFF
-        val targetB = color and 0xFF
+        // Sample the existing background color near top-left corner and use spatially connected
+        // flood-fill so we ONLY tint the connected studio backdrop and never tint white shirts, eyes, or teeth.
+        val sampleX = (width * 0.04f).toInt().coerceIn(0, width - 1)
+        val sampleY = (height * 0.04f).toInt().coerceIn(0, height - 1)
+        val sampledCornerColor = src.getPixel(sampleX, sampleY)
 
-        for (i in pixels.indices) {
-            val p = pixels[i]
-            val a = (p shr 24) and 0xFF
-            if (a == 0) {
-                // Transparent pixel, fill with target color
-                pixels[i] = color
-            } else {
-                val r = (p shr 16) and 0xFF
-                val g = (p shr 8) and 0xFF
-                val b = p and 0xFF
-                // Identify light/white background studio pixels (r, g, b > 210)
-                if (r > 210 && g > 210 && b > 210) {
-                    val factor = ((r + g + b) / 3f) / 255f
-                    val newR = (targetR * factor).toInt().coerceIn(0, 255)
-                    val newG = (targetG * factor).toInt().coerceIn(0, 255)
-                    val newB = (targetB * factor).toInt().coerceIn(0, 255)
-                    pixels[i] = (a shl 24) or (newR shl 16) or (newG shl 8) or newB
-                }
-            }
+        val seedColor = if (Color.alpha(sampledCornerColor) < 32) {
+            Color.WHITE
+        } else {
+            sampledCornerColor
         }
-        out.setPixels(pixels, 0, width, 0, 0, width, height)
-        return out
+
+        return replaceBackgroundColor(
+            src = src,
+            colorToReplace = seedColor,
+            replacementColor = color,
+            tolerance = 0.24f,
+            feather = 0.12f,
+            seedX = sampleX,
+            seedY = sampleY
+        )
     }
 }
+

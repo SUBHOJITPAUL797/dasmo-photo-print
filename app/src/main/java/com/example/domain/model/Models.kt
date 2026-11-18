@@ -17,6 +17,42 @@ enum class ProjectMode {
     BATCH_PAPER_SAVER
 }
 
+enum class WizardStep(val stepNumber: Int) {
+    HOME(0),
+    MODE_SELECT(1),
+    SIZE_INPUT(2),
+    PHOTO_A(3),
+    PHOTO_B(4),
+    JOINT_COMPOSE(5),
+    PREVIEW(6),
+    EXPORT(7);
+
+    companion object {
+        fun fromStepNumber(step: Int): WizardStep =
+            entries.firstOrNull { it.stepNumber == step } ?: HOME
+    }
+}
+
+enum class CuttingGuideStyle(val rawValue: String) {
+    DASHED("dashed"),
+    SOLID("solid");
+
+    companion object {
+        fun fromRawValue(value: String): CuttingGuideStyle =
+            entries.firstOrNull { it.rawValue.equals(value, ignoreCase = true) } ?: DASHED
+    }
+}
+
+enum class IdCardArrangement {
+    HORIZONTAL,
+    VERTICAL;
+
+    companion object {
+        fun fromRawValue(value: String): IdCardArrangement =
+            entries.firstOrNull { it.name.equals(value, ignoreCase = true) } ?: HORIZONTAL
+    }
+}
+
 data class PassportPresetSpec(
     val id: String,
     val title: String,

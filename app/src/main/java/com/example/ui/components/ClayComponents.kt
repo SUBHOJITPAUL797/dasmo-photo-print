@@ -331,3 +331,91 @@ fun ClayPillBadge(
         )
     }
 }
+
+/**
+ * 3D Claymorphic Wizard Step Banner used across SizeInputScreen, PhotoSelectionScreen,
+ * JointComposeScreen, and ExportScreen for cohesive Swiggy / Blinkit tactile polish.
+ */
+@Composable
+fun ClayWizardStepBanner(
+    stepLabel: String,
+    title: String,
+    subtitle: String,
+    progress: Float,
+    accentColor: Color = MaterialTheme.colorScheme.primary,
+    @DrawableRes artworkRes: Int? = null,
+    icon: ImageVector? = null,
+    modifier: Modifier = Modifier
+) {
+    ClayCard(
+        modifier = modifier.fillMaxWidth(),
+        accentColor = accentColor,
+        cornerRadius = 22.dp,
+        elevation = 4.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (artworkRes != null) {
+                    ClayArtworkBadge(
+                        drawableRes = artworkRes,
+                        accentColor = accentColor,
+                        size = 48.dp,
+                        cornerRadius = 15.dp
+                    )
+                } else if (icon != null) {
+                    ClayIconOrb(
+                        icon = icon,
+                        accentColor = accentColor,
+                        size = 46.dp,
+                        iconSize = 23.dp,
+                        cornerRadius = 15.dp
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        ClayPillBadge(
+                            text = stepLabel,
+                            accentColor = accentColor
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            LinearProgressIndicator(
+                progress = { progress.coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp)),
+                color = accentColor,
+                trackColor = accentColor.copy(alpha = 0.14f)
+            )
+        }
+    }
+}
+

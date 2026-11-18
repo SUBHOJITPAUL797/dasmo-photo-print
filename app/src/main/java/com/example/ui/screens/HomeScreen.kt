@@ -47,6 +47,14 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
+private sealed class HomeModalState {
+    object None : HomeModalState()
+    data class ConfirmDelete(val project: Project) : HomeModalState()
+    data class PhotoPreview(val project: Project) : HomeModalState()
+    object Settings : HomeModalState()
+    data class UpdateAvailable(val info: com.example.util.UpdateChecker.UpdateInfo) : HomeModalState()
+}
+
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -60,11 +68,7 @@ fun HomeScreen(
     val recentProjects by viewModel.recentProjects.collectAsState()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var projectToDelete by remember { mutableStateOf<Project?>(null) }
-    var photoToPreview by remember { mutableStateOf<Project?>(null) }
-    var showSettingsDialog by remember { mutableStateOf(false) }
-    var updateInfo by remember { mutableStateOf<com.example.util.UpdateChecker.UpdateInfo?>(null) }
-    var showUpdateDialog by remember { mutableStateOf(false) }
+    var modalState by remember { mutableStateOf<HomeModalState>(HomeModalState.None) }
 
     Scaffold(
         topBar = {
@@ -117,7 +121,7 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.width(4.dp))
                     }
                     IconButton(
-                        onClick = { showSettingsDialog = true },
+                        onClick = { modalState = HomeModalState.Settings },
                         modifier = Modifier.testTag("app_settings_btn")
                     ) {
                         Icon(
@@ -458,7 +462,7 @@ fun HomeScreen(
                             .fillMaxWidth()
                             .combinedClickable(
                                 onClick = { onReprintClicked(project) },
-                                onLongClick = { projectToDelete = project }
+                                onLongClick = { modalState = HomeModalState.ConfirmDelete(project) }
                             )
                             .testTag("project_item_${project.id}"),
                         accentColor = modeAccent,
@@ -497,7 +501,7 @@ fun HomeScreen(
                                             modeAccent.copy(alpha = 0.45f),
                                             RoundedCornerShape(16.dp)
                                         )
-                                        .clickable { photoToPreview = project }
+                                        .clickable { modalState = HomeModalState.PhotoPreview(project) }
                                 ) {
                                     coil.compose.AsyncImage(
                                         model = uriToShow,
@@ -582,7 +586,7 @@ fun HomeScreen(
                             }
 
                             IconButton(
-                                onClick = { projectToDelete = project },
+                                onClick = { modalState = HomeModalState.ConfirmDelete(project) },
                                 modifier = Modifier.testTag("delete_project_${project.id}")
                             ) {
                                 Icon(
@@ -598,243 +602,246 @@ fun HomeScreen(
         }
     }
 
-    // Confirm Delete Dialog
-    if (projectToDelete != null) {
-        val proj = projectToDelete!!
-        AlertDialog(
-            onDismissRequest = { projectToDelete = null },
-            title = { Text("Delete Print Job", fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to remove '${proj.name}' from recent print jobs?") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.deleteProject(proj)
-                        projectToDelete = null
-                    },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                    modifier = Modifier.testTag("confirm_delete_btn")
-                ) {
-                    Text("Delete", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { projectToDelete = null }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
+    // Exhaustive HomeModalState Machine (Guarantees at most one modal is visible at a time)
+    when (val currentModal = modalState) {
+        is HomeModalState.None -> Unit
 
-    if (photoToPreview != null) {
-        val proj = photoToPreview!!
-        androidx.compose.ui.window.Dialog(onDismissRequest = { photoToPreview = null }) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color.Black),
-                contentAlignment = Alignment.Center
-            ) {
-                coil.compose.AsyncImage(
-                    model = proj.photoAUri,
-                    contentDescription = "Full Photo Preview",
+        is HomeModalState.ConfirmDelete -> {
+            val proj = currentModal.project
+            AlertDialog(
+                onDismissRequest = { modalState = HomeModalState.None },
+                title = { Text("Delete Print Job", fontWeight = FontWeight.Bold) },
+                text = { Text("Are you sure you want to remove '${proj.name}' from recent print jobs?") },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            viewModel.deleteProject(proj)
+                            modalState = HomeModalState.None
+                        },
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.testTag("confirm_delete_btn")
+                    ) {
+                        Text("Delete", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { modalState = HomeModalState.None }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        is HomeModalState.PhotoPreview -> {
+            val proj = currentModal.project
+            androidx.compose.ui.window.Dialog(onDismissRequest = { modalState = HomeModalState.None }) {
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .wrapContentHeight()
-                        .clickable { photoToPreview = null },
-                    contentScale = ContentScale.Fit
-                )
-                IconButton(
-                    onClick = { photoToPreview = null },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                        .padding(16.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.Black),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Close Preview",
-                        tint = Color.White
+                    coil.compose.AsyncImage(
+                        model = proj.photoAUri,
+                        contentDescription = "Full Photo Preview",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .wrapContentHeight()
+                            .clickable { modalState = HomeModalState.None },
+                        contentScale = ContentScale.Fit
                     )
+                    IconButton(
+                        onClick = { modalState = HomeModalState.None },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close Preview",
+                            tint = Color.White
+                        )
+                    }
                 }
             }
         }
-    }
 
-    if (showSettingsDialog) {
-        val googleAccount = com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context)
+        is HomeModalState.Settings -> {
+            val googleAccount = com.google.android.gms.auth.api.signin.GoogleSignIn.getLastSignedInAccount(context)
 
-        AlertDialog(
-            onDismissRequest = { showSettingsDialog = false },
-            icon = {
-                ClayIconOrb(
-                    icon = Icons.Default.Settings,
-                    accentColor = MaterialTheme.colorScheme.primary,
-                    size = 44.dp,
-                    iconSize = 22.dp,
-                    cornerRadius = 14.dp
-                )
-            },
-            title = {
-                Text(
-                    text = "App Settings & Studio Info",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Black
-                )
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                        ),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = "DASMO PHOTO PRINT",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = "Cyber Café & Photo Studio Edition",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            val settingsStatusText = when {
-                                isAdmin -> "Status: Administrator (Full Access Enabled)"
-                                viewModel.isExpired -> "Status: Access Plan Expired"
-                                viewModel.isApproved -> "Status: Active Subscription Plan"
-                                else -> "Status: Pending Administrator Approval"
-                            }
-                            Text(
-                                text = settingsStatusText,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (viewModel.isApproved || isAdmin) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                        ),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = Icons.Default.CloudUpload,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
+            AlertDialog(
+                onDismissRequest = { modalState = HomeModalState.None },
+                icon = {
+                    ClayIconOrb(
+                        icon = Icons.Default.Settings,
+                        accentColor = MaterialTheme.colorScheme.primary,
+                        size = 44.dp,
+                        iconSize = 22.dp,
+                        cornerRadius = 14.dp
+                    )
+                },
+                title = {
+                    Text(
+                        text = "App Settings & Studio Info",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Black
+                    )
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            ),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
                                 Text(
-                                    text = "Google Drive Connection",
+                                    text = "DASMO PHOTO PRINT",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.Bold
                                 )
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = if (googleAccount != null) "Connected: ${googleAccount.email}" else "Not Connected (Connect in Export Screen)",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                Toast.makeText(context, "Checking GitHub for updates...", Toast.LENGTH_SHORT).show()
-                                scope.launch {
-                                    try {
-                                        val info = com.example.util.UpdateChecker.checkForUpdates(context)
-                                        updateInfo = info
-                                        if (info.hasUpdate) {
-                                            showUpdateDialog = true
-                                        } else {
-                                            Toast.makeText(context, "You are using the latest version (v${info.currentVersion})", Toast.LENGTH_LONG).show()
-                                        }
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "Update check failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            },
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                        ),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Check for Updates",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
+                                    text = "Cyber Café & Photo Studio Edition",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                val settingsStatusText = when {
+                                    isAdmin -> "Status: Administrator (Full Access Enabled)"
+                                    viewModel.isExpired -> "Status: Access Plan Expired"
+                                    viewModel.isApproved -> "Status: Active Subscription Plan"
+                                    else -> "Status: Pending Administrator Approval"
+                                }
                                 Text(
-                                    text = "Fetch latest APK release & changelogs from GitHub",
+                                    text = settingsStatusText,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (viewModel.isApproved || isAdmin) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                            ),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Default.CloudUpload,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Google Drive Connection",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = if (googleAccount != null) "Connected: ${googleAccount.email}" else "Not Connected (Connect in Export Screen)",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            Icon(
-                                imageVector = Icons.Default.SystemUpdate,
-                                contentDescription = "Update",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                        }
+
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    Toast.makeText(context, "Checking GitHub for updates...", Toast.LENGTH_SHORT).show()
+                                    scope.launch {
+                                        try {
+                                            val info = com.example.util.UpdateChecker.checkForUpdates(context)
+                                            if (info.hasUpdate) {
+                                                modalState = HomeModalState.UpdateAvailable(info)
+                                            } else {
+                                                Toast.makeText(context, "You are using the latest version (v${info.currentVersion})", Toast.LENGTH_LONG).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Update check failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                            ),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Check for Updates",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = "Fetch latest APK release & changelogs from GitHub",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Icon(
+                                    imageVector = Icons.Default.SystemUpdate,
+                                    contentDescription = "Update",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            ),
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "Default Print Specifications",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "• Resolution: 300 DPI High-Quality\n• Standard Sizes: A4, 4×6\", 5×7\", Custom\n• Cut Guides: Solid / Dashed in Pitch Black & Custom Colors",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
-
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                        ),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = "Default Print Specifications",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "• Resolution: 300 DPI High-Quality\n• Standard Sizes: A4, 4×6\", 5×7\", Custom\n• Cut Guides: Solid / Dashed in Pitch Black & Custom Colors",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                },
+                confirmButton = {
+                    Button(onClick = { modalState = HomeModalState.None }) {
+                        Text("Close")
                     }
                 }
-            },
-            confirmButton = {
-                Button(onClick = { showSettingsDialog = false }) {
-                    Text("Close")
-                }
-            }
-        )
-    }
+            )
+        }
 
-    if (showUpdateDialog && updateInfo != null) {
-        InAppUpdateDialog(
-            updateInfo = updateInfo!!,
-            onDismiss = { showUpdateDialog = false }
-        )
+        is HomeModalState.UpdateAvailable -> {
+            InAppUpdateDialog(
+                updateInfo = currentModal.info,
+                onDismiss = { modalState = HomeModalState.None }
+            )
+        }
     }
 }

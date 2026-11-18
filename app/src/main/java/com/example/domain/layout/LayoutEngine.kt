@@ -160,7 +160,10 @@ object LayoutEngine {
         val usableW = settings.pageWidthCm - 2 * settings.marginCm
         val usableH = settings.pageHeightCm - 2 * settings.marginCm
 
-        if (usableW <= 0f || usableH <= 0f || batchItems.isEmpty()) {
+        if (usableW <= 0f || usableH <= 0f) {
+            throw LayoutException("Page margins are too large. Usable space is zero.")
+        }
+        if (batchItems.isEmpty()) {
             return emptyList()
         }
 
@@ -181,6 +184,10 @@ object LayoutEngine {
             val itemW = item.widthCm
             val itemH = item.heightCm
             if (item.quantity <= 0 || itemW <= 0f || itemH <= 0f) continue
+
+            if (itemW > usableW + 0.001f || itemH > usableH + 0.001f) {
+                throw LayoutException("Batch size '${item.label}' (${itemW}×${itemH} cm) is too large to fit on the selected paper with current margins.")
+            }
 
             // If compactPacking is false, always force each size group onto a brand new shelf
             if (!settings.compactPacking && colInCurrentRow > 0) {

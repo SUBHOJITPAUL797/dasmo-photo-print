@@ -37,13 +37,40 @@ import androidx.core.content.FileProvider
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.auth.UserRecoverableAuthException
+import com.example.R
 import com.example.data.GoogleDriveService
 import com.example.data.DriveFolder
 import com.example.ui.ProjectViewModel
+import com.example.ui.components.ClayWizardStepBanner
 import com.example.util.PrintUtils
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileInputStream
+
+private sealed class DiskSaveState {
+    object Idle : DiskSaveState()
+    object Saving : DiskSaveState()
+    data class Saved(val pathInfo: String) : DiskSaveState()
+    data class Error(val message: String) : DiskSaveState()
+}
+
+private sealed class DriveUploadState {
+    object Idle : DriveUploadState()
+    object Uploading : DriveUploadState()
+    data class Success(val message: String) : DriveUploadState()
+    data class Error(val message: String) : DriveUploadState()
+}
+
+private sealed class DriveBrowserModalState {
+    object Closed : DriveBrowserModalState()
+    data class Loading(val pathStack: List<Pair<String, String>>) : DriveBrowserModalState()
+    data class Browsing(
+        val pathStack: List<Pair<String, String>>,
+        val folders: List<DriveFolder>,
+        val isCreatingNewFolder: Boolean = false,
+        val newFolderName: String = ""
+    ) : DriveBrowserModalState()
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,25 +81,17 @@ fun ExportScreen(
 ) {
     val context = LocalContext.current
     val sharedPrefs = remember { context.getSharedPreferences("drive_prefs", Context.MODE_PRIVATE) }
-    var isSavingToDisk by remember { mutableStateOf(false) }
-    var diskPathInfo by remember { mutableStateOf<String?>(null) }
+    var diskSaveState by remember { mutableStateOf<DiskSaveState>(DiskSaveState.Idle) }
+    var driveUploadState by remember { mutableStateOf<DriveUploadState>(DriveUploadState.Idle) }
+    var driveBrowserState by remember { mutableStateOf<DriveBrowserModalState>(DriveBrowserModalState.Closed) }
     var showUnderReviewDialog by remember { mutableStateOf(false) }
 
     val coroutineScope = rememberCoroutineScope()
     var googleAccount by remember { mutableStateOf(GoogleSignIn.getLastSignedInAccount(context)) }
     var accessToken by remember { mutableStateOf<String?>(null) }
 
-    // Google Drive folders browsing state
-    var isBrowseDialogOpen by remember { mutableStateOf(false) }
-    var currentFolders by remember { mutableStateOf<List<DriveFolder>>(emptyList()) }
-    var pathStack by remember { mutableStateOf(listOf("root" to "My Drive")) }
     var selectedFolderId by remember { mutableStateOf(sharedPrefs.getString("pinned_folder_id", "root") ?: "root") }
     var selectedFolderName by remember { mutableStateOf(sharedPrefs.getString("pinned_folder_name", "My Drive") ?: "My Drive") }
-    var isLoadingFolders by remember { mutableStateOf(false) }
-    var isUploadingToDrive by remember { mutableStateOf(false) }
-    var driveUploadSuccessMsg by remember { mutableStateOf<String?>(null) }
-    var showCreateFolderDialog by remember { mutableStateOf(false) }
-    var newFolderName by remember { mutableStateOf("") }
 
     val signInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -114,259 +133,275 @@ fun ExportScreen(
         hasRenderedOnce = true
     }
 
-    // Google Drive Folder Browser Dialog
-    if (isBrowseDialogOpen) {
-        AlertDialog(
-            onDismissRequest = { isBrowseDialogOpen = false },
-            title = {
-                Column {
-                    Text(
-                        text = "Select Google Drive Folder",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = pathStack.joinToString(" / ") { it.second },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            },
-            text = {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(300.dp)
-                ) {
-                    if (isLoadingFolders) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.align(Alignment.Center),
-                            color = MaterialTheme.colorScheme.primary
+    // Google Drive Folder Browser State Machine Dialogs
+    when (val browser = driveBrowserState) {
+        is DriveBrowserModalState.Closed -> Unit
+        is DriveBrowserModalState.Loading,
+        is DriveBrowserModalState.Browsing -> {
+            val activeStack = when (browser) {
+                is DriveBrowserModalState.Loading -> browser.pathStack
+                is DriveBrowserModalState.Browsing -> browser.pathStack
+                else -> listOf("root" to "My Drive")
+            }
+
+            AlertDialog(
+                onDismissRequest = { driveBrowserState = DriveBrowserModalState.Closed },
+                title = {
+                    Column {
+                        Text(
+                            text = "Select Google Drive Folder",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
                         )
-                    } else {
-                        Column(modifier = Modifier.fillMaxSize()) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                TextButton(
-                                    onClick = {
-                                        if (pathStack.size > 1) {
-                                            val newStack = pathStack.dropLast(1)
-                                            pathStack = newStack
-                                            val parentId = newStack.last().first
-                                            isLoadingFolders = true
-                                            coroutineScope.launch {
-                                                try {
-                                                    val token = accessToken
-                                                    if (token != null) {
-                                                        currentFolders = GoogleDriveService.listFolders(token, parentId)
-                                                    }
-                                                } catch (e: Throwable) {
-                                                    e.printStackTrace()
-                                                } finally {
-                                                    isLoadingFolders = false
-                                                }
-                                            }
-                                        }
-                                    },
-                                    enabled = pathStack.size > 1
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.ArrowUpward,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Go Up")
-                                }
-
-                                Button(
-                                    onClick = { showCreateFolderDialog = true },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                    )
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CreateNewFolder,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("New Folder")
-                                }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = activeStack.joinToString(" / ") { it.second },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                },
+                text = {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(300.dp)
+                    ) {
+                        when (browser) {
+                            is DriveBrowserModalState.Loading -> {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.align(Alignment.Center),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
                             }
-
-                            if (currentFolders.isEmpty()) {
-                                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                                    Text(
-                                        text = "No subfolders found here.\nClick \"Select This Folder\" to use the current directory, or create a new folder.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = TextAlign.Center,
-                                        modifier = Modifier.align(Alignment.Center)
-                                    )
-                                }
-                            } else {
-                                androidx.compose.foundation.lazy.LazyColumn(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxWidth()
-                                ) {
-                                    items(currentFolders.size) { index ->
-                                        val folder = currentFolders[index]
-                                        Card(
+                            is DriveBrowserModalState.Browsing -> {
+                                Column(modifier = Modifier.fillMaxSize()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(bottom = 8.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        TextButton(
                                             onClick = {
-                                                val newStack = pathStack.toMutableList()
-                                                newStack.add(folder.id to folder.name)
-                                                pathStack = newStack
-
-                                                isLoadingFolders = true
-                                                coroutineScope.launch {
-                                                    try {
-                                                        val token = accessToken
-                                                        if (token != null) {
-                                                            currentFolders = GoogleDriveService.listFolders(token, folder.id)
+                                                if (activeStack.size > 1) {
+                                                    val newStack = activeStack.dropLast(1)
+                                                    val parentId = newStack.last().first
+                                                    driveBrowserState = DriveBrowserModalState.Loading(newStack)
+                                                    coroutineScope.launch {
+                                                        try {
+                                                            val token = accessToken
+                                                            val folders = if (token != null) {
+                                                                GoogleDriveService.listFolders(token, parentId)
+                                                            } else emptyList()
+                                                            driveBrowserState = DriveBrowserModalState.Browsing(newStack, folders)
+                                                        } catch (e: Throwable) {
+                                                            e.printStackTrace()
+                                                            driveBrowserState = DriveBrowserModalState.Browsing(newStack, emptyList())
                                                         }
-                                                    } catch (e: Throwable) {
-                                                        e.printStackTrace()
-                                                    } finally {
-                                                        isLoadingFolders = false
                                                     }
                                                 }
                                             },
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = 4.dp),
-                                            colors = CardDefaults.cardColors(
-                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                                            ),
-                                            shape = RoundedCornerShape(8.dp)
+                                            enabled = activeStack.size > 1
                                         ) {
-                                            Row(
-                                                modifier = Modifier.padding(12.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Folder,
-                                                    contentDescription = null,
-                                                    tint = Color(0xFFFFB300)
-                                                )
-                                                Spacer(modifier = Modifier.width(10.dp))
-                                                Text(
-                                                    text = folder.name,
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    fontWeight = FontWeight.Medium
-                                                )
+                                            Icon(
+                                                imageVector = Icons.Default.ArrowUpward,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Go Up")
+                                        }
+
+                                        Button(
+                                            onClick = {
+                                                driveBrowserState = browser.copy(isCreatingNewFolder = true, newFolderName = "")
+                                            },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                            )
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CreateNewFolder,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("New Folder")
+                                        }
+                                    }
+
+                                    if (browser.folders.isEmpty()) {
+                                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                            Text(
+                                                text = "No subfolders found here.\nClick \"Select This Folder\" to use the current directory, or create a new folder.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.align(Alignment.Center)
+                                            )
+                                        }
+                                    } else {
+                                        androidx.compose.foundation.lazy.LazyColumn(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxWidth()
+                                        ) {
+                                            items(browser.folders.size) { index ->
+                                                val folder = browser.folders[index]
+                                                Card(
+                                                    onClick = {
+                                                        val newStack = activeStack + (folder.id to folder.name)
+                                                        driveBrowserState = DriveBrowserModalState.Loading(newStack)
+                                                        coroutineScope.launch {
+                                                            try {
+                                                                val token = accessToken
+                                                                val folders = if (token != null) {
+                                                                    GoogleDriveService.listFolders(token, folder.id)
+                                                                } else emptyList()
+                                                                driveBrowserState = DriveBrowserModalState.Browsing(newStack, folders)
+                                                            } catch (e: Throwable) {
+                                                                e.printStackTrace()
+                                                                driveBrowserState = DriveBrowserModalState.Browsing(newStack, emptyList())
+                                                            }
+                                                        }
+                                                    },
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(vertical = 4.dp),
+                                                    colors = CardDefaults.cardColors(
+                                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                                    ),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(12.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Folder,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFFFFB300)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(10.dp))
+                                                        Text(
+                                                            text = folder.name,
+                                                            style = MaterialTheme.typography.bodyMedium,
+                                                            fontWeight = FontWeight.Medium
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
+                            else -> Unit
                         }
                     }
-                }
-            },
-            confirmButton = {
-                Row {
-                    TextButton(
-                        onClick = {
-                            selectedFolderId = pathStack.last().first
-                            selectedFolderName = pathStack.last().second
-                            sharedPrefs.edit()
-                                .putString("pinned_folder_id", selectedFolderId)
-                                .putString("pinned_folder_name", selectedFolderName)
-                                .apply()
-                            Toast.makeText(context, "Pinned '$selectedFolderName'!", Toast.LENGTH_SHORT).show()
-                            isBrowseDialogOpen = false
+                },
+                confirmButton = {
+                    Row {
+                        TextButton(
+                            onClick = {
+                                selectedFolderId = activeStack.last().first
+                                selectedFolderName = activeStack.last().second
+                                sharedPrefs.edit()
+                                    .putString("pinned_folder_id", selectedFolderId)
+                                    .putString("pinned_folder_name", selectedFolderName)
+                                    .apply()
+                                Toast.makeText(context, "Pinned '$selectedFolderName'!", Toast.LENGTH_SHORT).show()
+                                driveBrowserState = DriveBrowserModalState.Closed
+                            }
+                        ) {
+                            Text("Pin Folder")
                         }
-                    ) {
-                        Text("Pin Folder")
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = {
-                            selectedFolderId = pathStack.last().first
-                            selectedFolderName = pathStack.last().second
-                            isBrowseDialogOpen = false
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = {
+                                selectedFolderId = activeStack.last().first
+                                selectedFolderName = activeStack.last().second
+                                driveBrowserState = DriveBrowserModalState.Closed
+                            }
+                        ) {
+                            Text("Select This Folder")
                         }
-                    ) {
-                        Text("Select This Folder")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { driveBrowserState = DriveBrowserModalState.Closed }) {
+                        Text("Cancel")
                     }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { isBrowseDialogOpen = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
+            )
 
-    // New Folder Dialog
-    if (showCreateFolderDialog) {
-        AlertDialog(
-            onDismissRequest = { showCreateFolderDialog = false },
-            title = { Text("Create New Folder") },
-            text = {
-                OutlinedTextField(
-                    value = newFolderName,
-                    onValueChange = { newFolderName = it },
-                    label = { Text("Folder Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (newFolderName.isNotBlank()) {
-                            isLoadingFolders = true
-                            showCreateFolderDialog = false
-                            coroutineScope.launch {
-                                try {
-                                    val token = accessToken
-                                    if (token != null) {
-                                        val parentId = pathStack.last().first
-                                        val createdId = GoogleDriveService.createFolder(token, newFolderName, parentId)
-                                        if (createdId != null) {
-                                            currentFolders = GoogleDriveService.listFolders(token, parentId)
-                                            Toast.makeText(context, "Folder created successfully!", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            Toast.makeText(context, "Failed to create folder.", Toast.LENGTH_SHORT).show()
+            // Nested New Folder Creation sub-state inside DriveBrowserModalState.Browsing
+            if (browser is DriveBrowserModalState.Browsing && browser.isCreatingNewFolder) {
+                AlertDialog(
+                    onDismissRequest = {
+                        driveBrowserState = browser.copy(isCreatingNewFolder = false, newFolderName = "")
+                    },
+                    title = { Text("Create New Folder") },
+                    text = {
+                        OutlinedTextField(
+                            value = browser.newFolderName,
+                            onValueChange = { updated ->
+                                driveBrowserState = browser.copy(newFolderName = updated)
+                            },
+                            label = { Text("Folder Name") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                val folderName = browser.newFolderName.trim()
+                                if (folderName.isNotBlank()) {
+                                    driveBrowserState = DriveBrowserModalState.Loading(activeStack)
+                                    coroutineScope.launch {
+                                        try {
+                                            val token = accessToken
+                                            val parentId = activeStack.last().first
+                                            if (token != null) {
+                                                val createdId = GoogleDriveService.createFolder(token, folderName, parentId)
+                                                val updatedFolders = GoogleDriveService.listFolders(token, parentId)
+                                                driveBrowserState = DriveBrowserModalState.Browsing(activeStack, updatedFolders)
+                                                if (createdId != null) {
+                                                    Toast.makeText(context, "Folder created successfully!", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    Toast.makeText(context, "Failed to create folder.", Toast.LENGTH_SHORT).show()
+                                                }
+                                            } else {
+                                                driveBrowserState = browser.copy(isCreatingNewFolder = false, newFolderName = "")
+                                            }
+                                        } catch (e: Throwable) {
+                                            e.printStackTrace()
+                                            Toast.makeText(context, "Failed to create folder: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                            driveBrowserState = browser.copy(isCreatingNewFolder = false, newFolderName = "")
                                         }
                                     }
-                                } catch (e: Throwable) {
-                                    e.printStackTrace()
-                                    Toast.makeText(context, "Failed to create folder: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                } finally {
-                                    newFolderName = ""
-                                    isLoadingFolders = false
                                 }
                             }
+                        ) {
+                            Text("Create")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = {
+                                driveBrowserState = browser.copy(isCreatingNewFolder = false, newFolderName = "")
+                            }
+                        ) {
+                            Text("Cancel")
                         }
                     }
-                ) {
-                    Text("Create")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showCreateFolderDialog = false
-                        newFolderName = ""
-                    }
-                ) {
-                    Text("Cancel")
-                }
+                )
             }
-        )
+        }
     }
 
     // Under Review or Expired Dialog (Secured Guard)
@@ -455,33 +490,15 @@ fun ExportScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // General wizard progress indicator representation
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val stepTextRepr = if (viewModel.mode == com.example.domain.model.ProjectMode.JOINT) "Step 5 of 5" else "Step 4 of 4"
-                Text(
-                    text = stepTextRepr,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                LinearProgressIndicator(
-                    progress = { 1.0f },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)),
-                    color = Color(0xFF4CAF50) // Vibrant success green indicates finalizing state!
-                )
-            }
-
-            Text(
-                text = "Save, Share or Print",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Black
+            // 3D Claymorphic Export & Print Ready Banner
+            val stepTextRepr = if (viewModel.mode == com.example.domain.model.ProjectMode.JOINT) "STEP 5 OF 5" else "STEP 4 OF 4"
+            ClayWizardStepBanner(
+                stepLabel = "$stepTextRepr • READY TO PRINT",
+                title = "Save, Share or Direct Print",
+                subtitle = "${viewModel.computedPages.size} sheet(s) compiled at ${viewModel.dpi} DPI on ${viewModel.selectedPaperSpec.name}",
+                progress = 1.0f,
+                accentColor = Color(0xFF00B894),
+                artworkRes = R.drawable.img_clay_paper_saver
             )
 
             // Dynamic renaming card field (Pre filled with time stamped labels)
@@ -500,33 +517,33 @@ fun ExportScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Compilation status spinner details
-            if (viewModel.isSavingPdf) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f))
-                ) {
-                    Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+            // Exhaustive PDF Compilation State Machine Banner
+            when (val pdfState = viewModel.pdfExportState) {
+                is com.example.ui.PdfExportState.Idle -> Unit
+                is com.example.ui.PdfExportState.Compiling -> {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f))
                     ) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Text(
-                            text = "Compiling layouts and drawing vector targets...",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(
+                                text = "Compiling layouts and drawing vector targets...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
-            } else {
-                val saveMsg = viewModel.saveSuccessMessage
-                if (!saveMsg.isNullOrBlank()) {
-                    val isSucceedState = saveMsg.contains("successfully")
+                is com.example.ui.PdfExportState.Success -> {
                     Surface(
                         modifier = Modifier.fillMaxWidth().testTag("export_save_banner"),
-                        color = if (isSucceedState) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.errorContainer,
-                        contentColor = if (isSucceedState) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onErrorContainer,
+                        color = Color(0xFFE8F5E9),
+                        contentColor = Color(0xFF2E7D32),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Row(
@@ -534,13 +551,38 @@ fun ExportScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = if (isSucceedState) Icons.Default.CheckCircle else Icons.Default.Error,
+                                imageVector = Icons.Default.CheckCircle,
                                 contentDescription = null,
-                                tint = if (isSucceedState) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error
+                                tint = Color(0xFF2E7D32)
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Text(
-                                text = saveMsg,
+                                text = pdfState.message,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+                is com.example.ui.PdfExportState.Error -> {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().testTag("export_save_banner"),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Error,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = pdfState.message,
                                 style = MaterialTheme.typography.bodySmall,
                                 fontWeight = FontWeight.Bold
                             )
@@ -901,28 +943,26 @@ fun ExportScreen(
                                         onClick = {
                                             val account = googleAccount?.account
                                             if (account != null) {
-                                                isLoadingFolders = true
-                                                isBrowseDialogOpen = true
+                                                val initialStack = listOf("root" to "My Drive")
+                                                driveBrowserState = DriveBrowserModalState.Loading(initialStack)
                                                 coroutineScope.launch {
                                                     try {
                                                         val token = GoogleDriveService.getAccessToken(context, account)
                                                         if (token != null) {
                                                             accessToken = token
-                                                            currentFolders = GoogleDriveService.listFolders(token, "root")
-                                                            pathStack = listOf("root" to "My Drive")
+                                                            val folders = GoogleDriveService.listFolders(token, "root")
+                                                            driveBrowserState = DriveBrowserModalState.Browsing(initialStack, folders)
                                                         } else {
                                                             Toast.makeText(context, "Failed to connect. Please sign in again.", Toast.LENGTH_SHORT).show()
-                                                            isBrowseDialogOpen = false
+                                                            driveBrowserState = DriveBrowserModalState.Closed
                                                         }
                                                     } catch (e: UserRecoverableAuthException) {
                                                         context.startActivity(e.intent)
-                                                        isBrowseDialogOpen = false
+                                                        driveBrowserState = DriveBrowserModalState.Closed
                                                     } catch (e: Throwable) {
                                                         e.printStackTrace()
                                                         Toast.makeText(context, "Failed to connect: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                                        isBrowseDialogOpen = false
-                                                    } finally {
-                                                        isLoadingFolders = false
+                                                        driveBrowserState = DriveBrowserModalState.Closed
                                                     }
                                                 }
                                             }
@@ -937,15 +977,15 @@ fun ExportScreen(
 
                             Spacer(modifier = Modifier.height(12.dp))
 
+                            val isCurrentlyUploading = driveUploadState is DriveUploadState.Uploading
                             Button(
                                 onClick = {
                                     if (!viewModel.isApproved) {
                                         showUnderReviewDialog = true
-                                    } else if (localCachePdfFile.exists() && !isUploadingToDrive) {
-                                        isUploadingToDrive = true
-                                        driveUploadSuccessMsg = null
+                                    } else if (localCachePdfFile.exists() && !isCurrentlyUploading) {
                                         val account = googleAccount?.account
                                         if (account != null) {
+                                            driveUploadState = DriveUploadState.Uploading
                                             coroutineScope.launch {
                                                 try {
                                                     val token = GoogleDriveService.getAccessToken(context, account)
@@ -958,25 +998,25 @@ fun ExportScreen(
                                                             selectedFolderId
                                                         )
                                                         if (success) {
-                                                            driveUploadSuccessMsg = "Successfully uploaded to folder '$selectedFolderName'!"
+                                                            driveUploadState = DriveUploadState.Success("Successfully uploaded to folder '$selectedFolderName'!")
                                                             Toast.makeText(context, "Uploaded to Google Drive!", Toast.LENGTH_LONG).show()
                                                         } else {
+                                                            driveUploadState = DriveUploadState.Error("Upload failed. Please check permissions.")
                                                             Toast.makeText(context, "Upload failed. Please check permissions.", Toast.LENGTH_LONG).show()
                                                         }
                                                     } else {
+                                                        driveUploadState = DriveUploadState.Error("Auth token expired. Logging in again.")
                                                         Toast.makeText(context, "Auth token expired. Logging in again.", Toast.LENGTH_SHORT).show()
                                                     }
                                                 } catch (e: UserRecoverableAuthException) {
+                                                    driveUploadState = DriveUploadState.Idle
                                                     context.startActivity(e.intent)
                                                 } catch (e: Throwable) {
                                                     e.printStackTrace()
+                                                    driveUploadState = DriveUploadState.Error("Upload failed: ${e.localizedMessage}")
                                                     Toast.makeText(context, "Upload failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                                } finally {
-                                                    isUploadingToDrive = false
                                                 }
                                             }
-                                        } else {
-                                            isUploadingToDrive = false
                                         }
                                     } else {
                                         Toast.makeText(context, "Please wait for PDF to compile before uploading.", Toast.LENGTH_SHORT).show()
@@ -986,13 +1026,13 @@ fun ExportScreen(
                                     .fillMaxWidth()
                                     .height(48.dp)
                                     .testTag("upload_to_drive_btn"),
-                                enabled = localCachePdfFile.exists() && !isUploadingToDrive,
+                                enabled = localCachePdfFile.exists() && !isCurrentlyUploading,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.primary,
                                     contentColor = MaterialTheme.colorScheme.onPrimary
                                 )
                             ) {
-                                if (isUploadingToDrive) {
+                                if (isCurrentlyUploading) {
                                     CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
                                 } else {
                                     Icon(imageVector = Icons.Default.CloudUpload, contentDescription = null)
@@ -1001,28 +1041,56 @@ fun ExportScreen(
                                 }
                             }
 
-                            if (!driveUploadSuccessMsg.isNullOrBlank()) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 8.dp)
-                                        .background(Color(0xFFE8F5E9), shape = RoundedCornerShape(8.dp))
-                                        .padding(10.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.CheckCircle,
-                                        contentDescription = null,
-                                        tint = Color(0xFF2E7D32),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = driveUploadSuccessMsg!!,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = Color(0xFF2E7D32),
-                                        fontWeight = FontWeight.Bold
-                                    )
+                            when (val uploadState = driveUploadState) {
+                                is DriveUploadState.Idle,
+                                is DriveUploadState.Uploading -> Unit
+                                is DriveUploadState.Success -> {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 8.dp)
+                                            .background(Color(0xFFE8F5E9), shape = RoundedCornerShape(8.dp))
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = Color(0xFF2E7D32),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = uploadState.message,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color(0xFF2E7D32),
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                                is DriveUploadState.Error -> {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 8.dp)
+                                            .background(MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(8.dp))
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Error,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = uploadState.message,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onErrorContainer,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             }
 
@@ -1043,7 +1111,8 @@ fun ExportScreen(
                                             accessToken = null
                                             selectedFolderId = "root"
                                             selectedFolderName = "My Drive"
-                                            driveUploadSuccessMsg = null
+                                            driveUploadState = DriveUploadState.Idle
+                                            driveBrowserState = DriveBrowserModalState.Closed
                                             Toast.makeText(context, "Disconnected Google Drive account.", Toast.LENGTH_SHORT).show()
                                         }
                                     }
@@ -1052,7 +1121,7 @@ fun ExportScreen(
                     }
                 }
 
-                // ACTION 2: Save File to Device storage
+                // ACTION 2: Save File to Device storage (Explicit DiskSaveState Machine)
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
@@ -1065,29 +1134,30 @@ fun ExportScreen(
                             color = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.height(8.dp))
+                        val isCurrentlySavingDisk = diskSaveState is DiskSaveState.Saving
                         OutlinedButton(
                             onClick = {
                                 if (!viewModel.isApproved) {
                                     showUnderReviewDialog = true
-                                } else if (localCachePdfFile.exists() && !isSavingToDisk) {
-                                    isSavingToDisk = true
+                                } else if (localCachePdfFile.exists() && !isCurrentlySavingDisk) {
+                                    diskSaveState = DiskSaveState.Saving
                                     val publicUri = writeToPublicDocuments(context, viewModel.filename, localCachePdfFile)
                                     if (publicUri != null) {
-                                        diskPathInfo = "Saved copy in Documents / PassportPhotos"
+                                        diskSaveState = DiskSaveState.Saved("Saved copy in Documents / PassportPhotos")
                                         Toast.makeText(context, "Saved successfully into Documents folder!", Toast.LENGTH_LONG).show()
                                     } else {
+                                        diskSaveState = DiskSaveState.Error("Failed to export file to external downloads.")
                                         Toast.makeText(context, "Failed to export file to external downloads.", Toast.LENGTH_LONG).show()
                                     }
-                                    isSavingToDisk = false
                                 }
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(48.dp)
                                 .testTag("action_save_to_documents_btn"),
-                            enabled = localCachePdfFile.exists() && !isSavingToDisk
+                            enabled = localCachePdfFile.exists() && !isCurrentlySavingDisk
                         ) {
-                            if (isSavingToDisk) {
+                            if (isCurrentlySavingDisk) {
                                 CircularProgressIndicator(modifier = Modifier.size(20.dp))
                             } else {
                                 Icon(imageVector = Icons.Default.Save, contentDescription = null)
@@ -1096,15 +1166,29 @@ fun ExportScreen(
                             }
                         }
 
-                        if (!diskPathInfo.isNullOrBlank()) {
-                            Text(
-                                text = diskPathInfo!!,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color(0xFF2E7D32),
-                                modifier = Modifier
-                                    .padding(top = 8.dp)
-                                    .testTag("save_path_info_text")
-                            )
+                        when (val saveState = diskSaveState) {
+                            is DiskSaveState.Idle,
+                            is DiskSaveState.Saving -> Unit
+                            is DiskSaveState.Saved -> {
+                                Text(
+                                    text = saveState.pathInfo,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color(0xFF2E7D32),
+                                    modifier = Modifier
+                                        .padding(top = 8.dp)
+                                        .testTag("save_path_info_text")
+                                )
+                            }
+                            is DiskSaveState.Error -> {
+                                Text(
+                                    text = saveState.message,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier
+                                        .padding(top = 8.dp)
+                                        .testTag("save_path_info_text")
+                                )
+                            }
                         }
                     }
                 }

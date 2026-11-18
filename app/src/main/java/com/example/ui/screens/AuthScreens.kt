@@ -919,6 +919,26 @@ fun AuthErrorScreen(
     }
 }
 
+private enum class AdminUserFilter(val label: String) {
+    ALL("All"),
+    PENDING("Pending"),
+    ACTIVE("Active"),
+    EXPIRED("Expired"),
+    REVOKED("Revoked"),
+    ADMINS("Admins")
+}
+
+private sealed class AdminModalState {
+    object None : AdminModalState()
+    object AddPreApproveUser : AdminModalState()
+    data class SetExpiryPlan(val user: UserAccount) : AdminModalState()
+    data class ConfirmAction(
+        val title: String,
+        val message: String,
+        val onConfirm: () -> Unit
+    ) : AdminModalState()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AdminDashboardScreen(
@@ -940,31 +960,38 @@ fun AdminDashboardScreen(
     }
 
     var searchQuery by remember { mutableStateOf("") }
-    var selectedFilter by remember { mutableStateOf("All") } // "All", "Pending", "Active", "Expired", "Revoked", "Admins"
-    var showAddUserDialog by remember { mutableStateOf(false) }
-    var showExpiryDialogForUser by remember { mutableStateOf<UserAccount?>(null) }
+    var selectedFilter by remember { mutableStateOf(AdminUserFilter.ALL) }
+    var adminModalState by remember { mutableStateOf<AdminModalState>(AdminModalState.None) }
 
-    // Dialog state for manually pre-approving / adding user
+    // Dialog input state for manually pre-approving / adding user
     var manualEmail by remember { mutableStateOf("") }
     var manualRole by remember { mutableStateOf("user") }
     var manualStatus by remember { mutableStateOf("approved") }
     var manualPlanDays by remember { mutableStateOf("30") }
 
-    // Confirmation dialog state
-    var pendingAction by remember { mutableStateOf<Triple<String, String, () -> Unit>?>(null) }
-
     val allUsers = authViewModel.allUsers
     val now = System.currentTimeMillis()
 
-    // Compute accurate real-time metrics
+    // Compute accurate real-time metrics via explicit AccountLifecycleStatus state machine
     val totalCount = allUsers.size
-    val pendingCount = allUsers.count { !it.isAdmin && !it.isApproved && it.status == "pending" }
-    val expiredCount = allUsers.count { !it.isAdmin && it.isApproved && it.expiryTimestamp in 1..<now }
-    val activeCount = allUsers.count { !it.isAdmin && it.isApproved && (it.expiryTimestamp == 0L || it.expiryTimestamp >= now) }
-    val revokedCount = allUsers.count { !it.isAdmin && (it.status == "rejected" || (!it.isApproved && it.status != "pending")) }
-    val adminCount = allUsers.count { it.isAdmin }
+    val pendingCount = allUsers.count {
+        it.resolveLifecycleStatus(now, AuthViewModel.SUPER_ADMIN_EMAIL) == com.example.domain.model.AccountLifecycleStatus.PENDING
+    }
+    val expiredCount = allUsers.count {
+        it.resolveLifecycleStatus(now, AuthViewModel.SUPER_ADMIN_EMAIL) == com.example.domain.model.AccountLifecycleStatus.EXPIRED
+    }
+    val activeCount = allUsers.count {
+        it.resolveLifecycleStatus(now, AuthViewModel.SUPER_ADMIN_EMAIL) == com.example.domain.model.AccountLifecycleStatus.ACTIVE
+    }
+    val revokedCount = allUsers.count {
+        it.resolveLifecycleStatus(now, AuthViewModel.SUPER_ADMIN_EMAIL) == com.example.domain.model.AccountLifecycleStatus.REVOKED
+    }
+    val adminCount = allUsers.count {
+        val st = it.resolveLifecycleStatus(now, AuthViewModel.SUPER_ADMIN_EMAIL)
+        st == com.example.domain.model.AccountLifecycleStatus.SUPER_ADMIN || st == com.example.domain.model.AccountLifecycleStatus.ADMIN
+    }
 
-    // Filtered users list
+    // Filtered users list using exhaustive AdminUserFilter + AccountLifecycleStatus
     val filteredUsers = remember(allUsers, searchQuery, selectedFilter, now) {
         allUsers.filter { user ->
             val matchesSearch = searchQuery.isBlank() ||
@@ -972,19 +999,15 @@ fun AdminDashboardScreen(
                     user.deviceModel.contains(searchQuery, ignoreCase = true) ||
                     user.deviceId.contains(searchQuery, ignoreCase = true)
 
-            val isUserExpired = !user.isAdmin && user.isApproved && user.expiryTimestamp in 1..<now
-            val isUserActive = !user.isAdmin && user.isApproved && !isUserExpired
-            val isUserPending = !user.isAdmin && !user.isApproved && user.status == "pending"
-            val isUserRevoked = !user.isAdmin && (user.status == "rejected" || (!user.isApproved && user.status != "pending"))
-
+            val lifecycle = user.resolveLifecycleStatus(now, AuthViewModel.SUPER_ADMIN_EMAIL)
             val matchesFilter = when (selectedFilter) {
-                "All" -> true
-                "Pending" -> isUserPending
-                "Active" -> isUserActive
-                "Expired" -> isUserExpired
-                "Revoked" -> isUserRevoked
-                "Admins" -> user.isAdmin
-                else -> true
+                AdminUserFilter.ALL -> true
+                AdminUserFilter.PENDING -> lifecycle == com.example.domain.model.AccountLifecycleStatus.PENDING
+                AdminUserFilter.ACTIVE -> lifecycle == com.example.domain.model.AccountLifecycleStatus.ACTIVE
+                AdminUserFilter.EXPIRED -> lifecycle == com.example.domain.model.AccountLifecycleStatus.EXPIRED
+                AdminUserFilter.REVOKED -> lifecycle == com.example.domain.model.AccountLifecycleStatus.REVOKED
+                AdminUserFilter.ADMINS -> lifecycle == com.example.domain.model.AccountLifecycleStatus.SUPER_ADMIN ||
+                        lifecycle == com.example.domain.model.AccountLifecycleStatus.ADMIN
             }
             matchesSearch && matchesFilter
         }
@@ -1043,7 +1066,7 @@ fun AdminDashboardScreen(
                     manualRole = "user"
                     manualStatus = "approved"
                     manualPlanDays = "30"
-                    showAddUserDialog = true
+                    adminModalState = AdminModalState.AddPreApproveUser
                 },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -1072,48 +1095,48 @@ fun AdminDashboardScreen(
                     value = totalCount.toString(),
                     accentColor = MaterialTheme.colorScheme.primary,
                     icon = Icons.Default.Group,
-                    isSelected = selectedFilter == "All",
-                    onClick = { selectedFilter = "All" }
+                    isSelected = selectedFilter == AdminUserFilter.ALL,
+                    onClick = { selectedFilter = AdminUserFilter.ALL }
                 )
                 AdminKpiCard(
                     title = "Pending",
                     value = pendingCount.toString(),
                     accentColor = Color(0xFFEF6C00),
                     icon = Icons.Default.HourglassTop,
-                    isSelected = selectedFilter == "Pending",
-                    onClick = { selectedFilter = "Pending" }
+                    isSelected = selectedFilter == AdminUserFilter.PENDING,
+                    onClick = { selectedFilter = AdminUserFilter.PENDING }
                 )
                 AdminKpiCard(
                     title = "Active",
                     value = activeCount.toString(),
                     accentColor = Color(0xFF2E7D32),
                     icon = Icons.Default.CheckCircle,
-                    isSelected = selectedFilter == "Active",
-                    onClick = { selectedFilter = "Active" }
+                    isSelected = selectedFilter == AdminUserFilter.ACTIVE,
+                    onClick = { selectedFilter = AdminUserFilter.ACTIVE }
                 )
                 AdminKpiCard(
                     title = "Expired",
                     value = expiredCount.toString(),
                     accentColor = Color(0xFFD84315),
                     icon = Icons.Default.EventBusy,
-                    isSelected = selectedFilter == "Expired",
-                    onClick = { selectedFilter = "Expired" }
+                    isSelected = selectedFilter == AdminUserFilter.EXPIRED,
+                    onClick = { selectedFilter = AdminUserFilter.EXPIRED }
                 )
                 AdminKpiCard(
                     title = "Revoked",
                     value = revokedCount.toString(),
                     accentColor = MaterialTheme.colorScheme.error,
                     icon = Icons.Default.Block,
-                    isSelected = selectedFilter == "Revoked",
-                    onClick = { selectedFilter = "Revoked" }
+                    isSelected = selectedFilter == AdminUserFilter.REVOKED,
+                    onClick = { selectedFilter = AdminUserFilter.REVOKED }
                 )
                 AdminKpiCard(
                     title = "Admins",
                     value = adminCount.toString(),
                     accentColor = Color(0xFF1565C0),
                     icon = Icons.Default.AdminPanelSettings,
-                    isSelected = selectedFilter == "Admins",
-                    onClick = { selectedFilter = "Admins" }
+                    isSelected = selectedFilter == AdminUserFilter.ADMINS,
+                    onClick = { selectedFilter = AdminUserFilter.ADMINS }
                 )
             }
 
@@ -1161,16 +1184,16 @@ fun AdminDashboardScreen(
                         }
 
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            if (selectedFilter != "Pending") {
-                                TextButton(onClick = { selectedFilter = "Pending" }) {
+                            if (selectedFilter != AdminUserFilter.PENDING) {
+                                TextButton(onClick = { selectedFilter = AdminUserFilter.PENDING }) {
                                     Text("View", fontWeight = FontWeight.Bold, color = Color(0xFFEF6C00))
                                 }
                             }
                             Button(
                                 onClick = {
-                                    pendingAction = Triple(
-                                        "Approve All Pending Accounts",
-                                        "Grant access to all $pendingCount pending account(s)?"
+                                    adminModalState = AdminModalState.ConfirmAction(
+                                        title = "Approve All Pending Accounts",
+                                        message = "Grant access to all $pendingCount pending account(s)?"
                                     ) {
                                         authViewModel.approveAllPendingUsers()
                                     }
@@ -1218,19 +1241,19 @@ fun AdminDashboardScreen(
                     .padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                val filters = listOf(
-                    "All" to "All ($totalCount)",
-                    "Pending" to "Pending ($pendingCount)",
-                    "Active" to "Active ($activeCount)",
-                    "Expired" to "Expired ($expiredCount)",
-                    "Revoked" to "Revoked ($revokedCount)",
-                    "Admins" to "Admins ($adminCount)"
+                val filterChips = listOf(
+                    AdminUserFilter.ALL to "All ($totalCount)",
+                    AdminUserFilter.PENDING to "Pending ($pendingCount)",
+                    AdminUserFilter.ACTIVE to "Active ($activeCount)",
+                    AdminUserFilter.EXPIRED to "Expired ($expiredCount)",
+                    AdminUserFilter.REVOKED to "Revoked ($revokedCount)",
+                    AdminUserFilter.ADMINS to "Admins ($adminCount)"
                 )
-                filters.forEach { (key, label) ->
-                    val isSelected = selectedFilter == key
+                filterChips.forEach { (filterEnum, label) ->
+                    val isSelected = selectedFilter == filterEnum
                     FilterChip(
                         selected = isSelected,
-                        onClick = { selectedFilter = key },
+                        onClick = { selectedFilter = filterEnum },
                         label = { Text(label, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = MaterialTheme.colorScheme.primary,
@@ -1258,7 +1281,7 @@ fun AdminDashboardScreen(
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = if (searchQuery.isNotEmpty()) "No accounts matching \"$searchQuery\"" else "No accounts in \"$selectedFilter\"",
+                            text = if (searchQuery.isNotEmpty()) "No accounts matching \"$searchQuery\"" else "No accounts in \"${selectedFilter.label}\"",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1284,40 +1307,40 @@ fun AdminDashboardScreen(
                                 authViewModel.approveUser(user.email, durationDays = 0)
                             },
                             onDeclineOrRevoke = {
-                                pendingAction = Triple(
-                                    "Revoke Account Access",
-                                    "Immediately lock and revoke access for ${user.email}? If they are currently using the app, their session will terminate immediately."
+                                adminModalState = AdminModalState.ConfirmAction(
+                                    title = "Revoke Account Access",
+                                    message = "Immediately lock and revoke access for ${user.email}? If they are currently using the app, their session will terminate immediately."
                                 ) {
                                     authViewModel.rejectUser(user.email)
                                 }
                             },
                             onResetDevice = {
-                                pendingAction = Triple(
-                                    "Reset Hardware Device Binding",
-                                    "Clear the locked hardware ID (${user.deviceModel.ifEmpty { "Device" }}) for ${user.email}?\n\nTheir next sign-in will bind their new phone automatically."
+                                adminModalState = AdminModalState.ConfirmAction(
+                                    title = "Reset Hardware Device Binding",
+                                    message = "Clear the locked hardware ID (${user.deviceModel.ifEmpty { "Device" }}) for ${user.email}?\n\nTheir next sign-in will bind their new phone automatically."
                                 ) {
                                     authViewModel.revokeDevice(user.email, keepApproved = user.isApproved)
                                 }
                             },
                             onToggleAdminRole = {
                                 val nextRole = if (user.isAdmin) "user" else "admin"
-                                pendingAction = Triple(
-                                    "Change Account Role",
-                                    "Change ${user.email} role to ${nextRole.uppercase()}?"
+                                adminModalState = AdminModalState.ConfirmAction(
+                                    title = "Change Account Role",
+                                    message = "Change ${user.email} role to ${nextRole.uppercase()}?"
                                 ) {
                                     authViewModel.updateUserRole(user.email, nextRole)
                                 }
                             },
                             onDeleteUser = {
-                                pendingAction = Triple(
-                                    "Delete Account Record",
-                                    "Permanently delete ${user.email} from Firestore? They will be signed out immediately."
+                                adminModalState = AdminModalState.ConfirmAction(
+                                    title = "Delete Account Record",
+                                    message = "Permanently delete ${user.email} from Firestore? They will be signed out immediately."
                                 ) {
                                     authViewModel.deleteUser(user.email)
                                 }
                             },
                             onUpdateExpiry = {
-                                showExpiryDialogForUser = user
+                                adminModalState = AdminModalState.SetExpiryPlan(user)
                             }
                         )
                     }
@@ -1326,278 +1349,281 @@ fun AdminDashboardScreen(
         }
     }
 
-    // Confirmation Dialog
-    pendingAction?.let { (title, message, action) ->
-        AlertDialog(
-            onDismissRequest = { pendingAction = null },
-            icon = { Icon(Icons.Default.SecurityUpdateWarning, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-            title = { Text(title, fontWeight = FontWeight.Bold) },
-            text = { Text(message) },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        action()
-                        pendingAction = null
-                    }
-                ) {
-                    Text("Confirm", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingAction = null }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
+    // Exhaustive AdminModalState Machine (Guarantees at most one modal is visible at a time)
+    when (val modal = adminModalState) {
+        is AdminModalState.None -> Unit
 
-    // Add / Pre-Approve User Dialog
-    if (showAddUserDialog) {
-        AlertDialog(
-            onDismissRequest = { showAddUserDialog = false },
-            icon = { Icon(Icons.Default.PersonAdd, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-            title = { Text("Add / Pre-Approve Account", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    OutlinedTextField(
-                        value = manualEmail,
-                        onValueChange = { manualEmail = it },
-                        label = { Text("Google Account Email") },
-                        placeholder = { Text("operator@gmail.com") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Account Role", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            FilterChip(
-                                selected = manualRole == "user",
-                                onClick = { manualRole = "user" },
-                                label = { Text("Standard User") }
-                            )
-                            FilterChip(
-                                selected = manualRole == "admin",
-                                onClick = { manualRole = "admin" },
-                                label = { Text("Admin") }
-                            )
+        is AdminModalState.ConfirmAction -> {
+            AlertDialog(
+                onDismissRequest = { adminModalState = AdminModalState.None },
+                icon = { Icon(Icons.Default.SecurityUpdateWarning, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = { Text(modal.title, fontWeight = FontWeight.Bold) },
+                text = { Text(modal.message) },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            modal.onConfirm()
+                            adminModalState = AdminModalState.None
                         }
+                    ) {
+                        Text("Confirm", fontWeight = FontWeight.Bold)
                     }
+                },
+                dismissButton = {
+                    TextButton(onClick = { adminModalState = AdminModalState.None }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
 
-                    if (manualRole != "admin") {
+        is AdminModalState.AddPreApproveUser -> {
+            AlertDialog(
+                onDismissRequest = { adminModalState = AdminModalState.None },
+                icon = { Icon(Icons.Default.PersonAdd, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = { Text("Add / Pre-Approve Account", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = manualEmail,
+                            onValueChange = { manualEmail = it },
+                            label = { Text("Google Account Email") },
+                            placeholder = { Text("operator@gmail.com") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp)
+                        )
+
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Initial Approval Status", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                            Text("Account Role", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 FilterChip(
-                                    selected = manualStatus == "approved",
-                                    onClick = { manualStatus = "approved" },
-                                    label = { Text("Approved Immediately") }
+                                    selected = manualRole == "user",
+                                    onClick = { manualRole = "user" },
+                                    label = { Text("Standard User") }
                                 )
                                 FilterChip(
-                                    selected = manualStatus == "pending",
-                                    onClick = { manualStatus = "pending" },
-                                    label = { Text("Pending Gate") }
+                                    selected = manualRole == "admin",
+                                    onClick = { manualRole = "admin" },
+                                    label = { Text("Admin") }
                                 )
                             }
                         }
 
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Subscription Plan Duration", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                            Row(
-                                modifier = Modifier.horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                val planOptions = listOf(
-                                    "7" to "7 Days",
-                                    "30" to "30 Days",
-                                    "90" to "90 Days",
-                                    "365" to "1 Year",
-                                    "0" to "Lifetime"
-                                )
-                                planOptions.forEach { (days, label) ->
+                        if (manualRole != "admin") {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Initial Approval Status", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     FilterChip(
-                                        selected = manualPlanDays == days,
-                                        onClick = { manualPlanDays = days },
-                                        label = { Text(label) }
+                                        selected = manualStatus == "approved",
+                                        onClick = { manualStatus = "approved" },
+                                        label = { Text("Approved Immediately") }
                                     )
+                                    FilterChip(
+                                        selected = manualStatus == "pending",
+                                        onClick = { manualStatus = "pending" },
+                                        label = { Text("Pending Gate") }
+                                    )
+                                }
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("Subscription Plan Duration", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                Row(
+                                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    val planOptions = listOf(
+                                        "7" to "7 Days",
+                                        "30" to "30 Days",
+                                        "90" to "90 Days",
+                                        "365" to "1 Year",
+                                        "0" to "Lifetime"
+                                    )
+                                    planOptions.forEach { (days, label) ->
+                                        FilterChip(
+                                            selected = manualPlanDays == days,
+                                            onClick = { manualPlanDays = days },
+                                            label = { Text(label) }
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (manualEmail.isNotBlank()) {
-                            val days = manualPlanDays.toLongOrNull() ?: 0L
-                            val expiry = if (days <= 0L || manualRole == "admin") {
-                                0L
-                            } else {
-                                System.currentTimeMillis() + days * 24L * 60L * 60L * 1000L
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            if (manualEmail.isNotBlank()) {
+                                val days = manualPlanDays.toLongOrNull() ?: 0L
+                                val expiry = if (days <= 0L || manualRole == "admin") {
+                                    0L
+                                } else {
+                                    System.currentTimeMillis() + days * 24L * 60L * 60L * 1000L
+                                }
+                                authViewModel.createUserManually(
+                                    email = manualEmail,
+                                    role = manualRole,
+                                    status = manualStatus,
+                                    expiryTimestamp = expiry
+                                )
+                                adminModalState = AdminModalState.None
                             }
-                            authViewModel.createUserManually(
-                                email = manualEmail,
-                                role = manualRole,
-                                status = manualStatus,
-                                expiryTimestamp = expiry
-                            )
-                            showAddUserDialog = false
-                        }
-                    },
-                    enabled = manualEmail.contains("@")
-                ) {
-                    Text("Save Account", fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddUserDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
-
-    // Expiry Plan Duration Dialog
-    showExpiryDialogForUser?.let { user ->
-        var selectedPreset by remember { mutableStateOf("30") }
-        var customDaysInput by remember { mutableStateOf("30") }
-
-        AlertDialog(
-            onDismissRequest = { showExpiryDialogForUser = null },
-            icon = { Icon(Icons.Default.EventAvailable, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
-            title = { Text("Manage Access Plan Duration", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = user.email,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-
-                    val presets = listOf(
-                        "1" to "1 Day Trial Pass",
-                        "7" to "7 Days Weekly Plan",
-                        "30" to "30 Days Monthly Plan",
-                        "90" to "90 Days Quarterly Plan",
-                        "180" to "180 Days Half-Yearly Plan",
-                        "365" to "365 Days Annual Plan",
-                        "lifetime" to "Lifetime Access (No Expiry)",
-                        "custom" to "Custom Number of Days"
-                    )
-
-                    presets.forEach { (key, label) ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { selectedPreset = key }
-                                .fillMaxWidth()
-                                .padding(vertical = 2.dp)
-                        ) {
-                            RadioButton(selected = selectedPreset == key, onClick = { selectedPreset = key })
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(label, style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
-
-                    if (selectedPreset == "custom") {
-                        OutlinedTextField(
-                            value = customDaysInput,
-                            onValueChange = { customDaysInput = it.filter { c -> c.isDigit() } },
-                            label = { Text("Enter Number of Days") },
-                            placeholder = { Text("e.g. 45") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                    }
-
-                    val computedExpiryMs = remember(selectedPreset, customDaysInput) {
-                        when (selectedPreset) {
-                            "lifetime" -> 0L
-                            "custom" -> {
-                                val days = (customDaysInput.toIntOrNull() ?: 1).coerceAtLeast(1)
-                                System.currentTimeMillis() + days * 24L * 60L * 60L * 1000L
-                            }
-                            else -> {
-                                val days = selectedPreset.toIntOrNull() ?: 30
-                                System.currentTimeMillis() + days * 24L * 60L * 60L * 1000L
-                            }
-                        }
-                    }
-
-                    val previewText = if (computedExpiryMs == 0L) {
-                        "Unlimited Lifetime Access"
-                    } else {
-                        val formatter = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
-                        "Valid until ${formatter.format(Date(computedExpiryMs))}"
-                    }
-
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                        shape = RoundedCornerShape(10.dp)
+                        },
+                        enabled = manualEmail.contains("@")
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                text = "New Plan Summary",
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = previewText,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
+                        Text("Save Account", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { adminModalState = AdminModalState.None }) {
+                        Text("Cancel")
                     }
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val expiryMs = when (selectedPreset) {
-                            "lifetime" -> 0L
-                            "custom" -> {
-                                val days = (customDaysInput.toIntOrNull() ?: 1).coerceAtLeast(1)
-                                System.currentTimeMillis() + days * 24L * 60L * 60L * 1000L
-                            }
-                            else -> {
-                                val days = selectedPreset.toIntOrNull() ?: 30
-                                System.currentTimeMillis() + days * 24L * 60L * 60L * 1000L
+            )
+        }
+
+        is AdminModalState.SetExpiryPlan -> {
+            val user = modal.user
+            var selectedPreset by remember(user.email) { mutableStateOf("30") }
+            var customDaysInput by remember(user.email) { mutableStateOf("30") }
+
+            AlertDialog(
+                onDismissRequest = { adminModalState = AdminModalState.None },
+                icon = { Icon(Icons.Default.EventAvailable, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+                title = { Text("Manage Access Plan Duration", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            text = user.email,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        val presets = listOf(
+                            "1" to "1 Day Trial Pass",
+                            "7" to "7 Days Weekly Plan",
+                            "30" to "30 Days Monthly Plan",
+                            "90" to "90 Days Quarterly Plan",
+                            "180" to "180 Days Half-Yearly Plan",
+                            "365" to "365 Days Annual Plan",
+                            "lifetime" to "Lifetime Access (No Expiry)",
+                            "custom" to "Custom Number of Days"
+                        )
+
+                        presets.forEach { (key, label) ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { selectedPreset = key }
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp)
+                            ) {
+                                RadioButton(selected = selectedPreset == key, onClick = { selectedPreset = key })
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(label, style = MaterialTheme.typography.bodyMedium)
                             }
                         }
-                        authViewModel.updateUserExpiry(user.email, expiryMs)
-                        showExpiryDialogForUser = null
+
+                        if (selectedPreset == "custom") {
+                            OutlinedTextField(
+                                value = customDaysInput,
+                                onValueChange = { customDaysInput = it.filter { c -> c.isDigit() } },
+                                label = { Text("Enter Number of Days") },
+                                placeholder = { Text("e.g. 45") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+
+                        val computedExpiryMs = remember(selectedPreset, customDaysInput) {
+                            when (selectedPreset) {
+                                "lifetime" -> 0L
+                                "custom" -> {
+                                    val days = (customDaysInput.toIntOrNull() ?: 1).coerceAtLeast(1)
+                                    System.currentTimeMillis() + days * 24L * 60L * 60L * 1000L
+                                }
+                                else -> {
+                                    val days = selectedPreset.toIntOrNull() ?: 30
+                                    System.currentTimeMillis() + days * 24L * 60L * 60L * 1000L
+                                }
+                            }
+                        }
+
+                        val previewText = if (computedExpiryMs == 0L) {
+                            "Unlimited Lifetime Access"
+                        } else {
+                            val formatter = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault())
+                            "Valid until ${formatter.format(Date(computedExpiryMs))}"
+                        }
+
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = "New Plan Summary",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = previewText,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
                     }
-                ) {
-                    Text("Save & Activate Plan", fontWeight = FontWeight.Bold)
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val expiryMs = when (selectedPreset) {
+                                "lifetime" -> 0L
+                                "custom" -> {
+                                    val days = (customDaysInput.toIntOrNull() ?: 1).coerceAtLeast(1)
+                                    System.currentTimeMillis() + days * 24L * 60L * 60L * 1000L
+                                }
+                                else -> {
+                                    val days = selectedPreset.toIntOrNull() ?: 30
+                                    System.currentTimeMillis() + days * 24L * 60L * 60L * 1000L
+                                }
+                            }
+                            authViewModel.updateUserExpiry(user.email, expiryMs)
+                            adminModalState = AdminModalState.None
+                        }
+                    ) {
+                        Text("Save & Activate Plan", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { adminModalState = AdminModalState.None }) {
+                        Text("Cancel")
+                    }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showExpiryDialogForUser = null }) {
-                    Text("Cancel")
-                }
-            }
-        )
+            )
+        }
     }
 }
 
@@ -1667,18 +1693,17 @@ fun EnhancedUserAdminCard(
     val context = LocalContext.current
     val now = System.currentTimeMillis()
 
-    val isSuperAdmin = user.email.trim().lowercase() == AuthViewModel.SUPER_ADMIN_EMAIL
-    val isExpired = !user.isAdmin && user.isApproved && user.expiryTimestamp in 1..<now
-    val isRevoked = !user.isAdmin && (user.status == "rejected" || (!user.isApproved && user.status != "pending"))
-    val isPending = !user.isAdmin && !user.isApproved && user.status == "pending"
+    val lifecycleStatus = user.resolveLifecycleStatus(now, AuthViewModel.SUPER_ADMIN_EMAIL)
+    val isSuperAdmin = lifecycleStatus == com.example.domain.model.AccountLifecycleStatus.SUPER_ADMIN
+    val isExpired = lifecycleStatus == com.example.domain.model.AccountLifecycleStatus.EXPIRED
 
-    val (statusLabel, statusColor) = when {
-        isSuperAdmin -> "SUPER ADMIN" to MaterialTheme.colorScheme.primary
-        user.isAdmin -> "ADMIN" to Color(0xFF1565C0)
-        isPending -> "PENDING APPROVAL" to Color(0xFFEF6C00)
-        isRevoked -> "REVOKED / LOCKED" to MaterialTheme.colorScheme.error
-        isExpired -> "PLAN EXPIRED" to Color(0xFFD84315)
-        else -> "ACTIVE • APPROVED" to Color(0xFF2E7D32)
+    val (statusLabel, statusColor) = when (lifecycleStatus) {
+        com.example.domain.model.AccountLifecycleStatus.SUPER_ADMIN -> "SUPER ADMIN" to MaterialTheme.colorScheme.primary
+        com.example.domain.model.AccountLifecycleStatus.ADMIN -> "ADMIN" to Color(0xFF1565C0)
+        com.example.domain.model.AccountLifecycleStatus.PENDING -> "PENDING APPROVAL" to Color(0xFFEF6C00)
+        com.example.domain.model.AccountLifecycleStatus.REVOKED -> "REVOKED / LOCKED" to MaterialTheme.colorScheme.error
+        com.example.domain.model.AccountLifecycleStatus.EXPIRED -> "PLAN EXPIRED" to Color(0xFFD84315)
+        com.example.domain.model.AccountLifecycleStatus.ACTIVE -> "ACTIVE • APPROVED" to Color(0xFF2E7D32)
     }
 
     ClayCard(
@@ -1695,12 +1720,13 @@ fun EnhancedUserAdminCard(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 ClayIconOrb(
-                    icon = when {
-                        isSuperAdmin || user.isAdmin -> Icons.Default.AdminPanelSettings
-                        isPending -> Icons.Default.HourglassTop
-                        isRevoked -> Icons.Default.Block
-                        isExpired -> Icons.Default.EventBusy
-                        else -> Icons.Default.VerifiedUser
+                    icon = when (lifecycleStatus) {
+                        com.example.domain.model.AccountLifecycleStatus.SUPER_ADMIN,
+                        com.example.domain.model.AccountLifecycleStatus.ADMIN -> Icons.Default.AdminPanelSettings
+                        com.example.domain.model.AccountLifecycleStatus.PENDING -> Icons.Default.HourglassTop
+                        com.example.domain.model.AccountLifecycleStatus.REVOKED -> Icons.Default.Block
+                        com.example.domain.model.AccountLifecycleStatus.EXPIRED -> Icons.Default.EventBusy
+                        com.example.domain.model.AccountLifecycleStatus.ACTIVE -> Icons.Default.VerifiedUser
                     },
                     accentColor = statusColor,
                     size = 46.dp,
@@ -1880,161 +1906,163 @@ fun EnhancedUserAdminCard(
                 }
             }
 
-            // Admin Controls Row (For all non-Super-Admin accounts)
-            if (!isSuperAdmin) {
-                Spacer(modifier = Modifier.height(12.dp))
+            // Admin Controls Row (Exhaustive on AccountLifecycleStatus)
+            when (lifecycleStatus) {
+                com.example.domain.model.AccountLifecycleStatus.SUPER_ADMIN -> Unit
 
-                when {
-                    isPending -> {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                com.example.domain.model.AccountLifecycleStatus.PENDING -> {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = onApprove30Days,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF2E7D32),
+                                contentColor = Color.White
+                            ),
+                            contentPadding = PaddingValues(horizontal = 8.dp)
                         ) {
-                            Button(
-                                onClick = onApprove30Days,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(40.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF2E7D32),
-                                    contentColor = Color.White
-                                ),
-                                contentPadding = PaddingValues(horizontal = 8.dp)
-                            ) {
-                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Approve (30d)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
+                            Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Approve (30d)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
 
-                            FilledTonalButton(
-                                onClick = onApproveLifetime,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(40.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp)
-                            ) {
-                                Icon(Icons.Default.AllInclusive, contentDescription = null, modifier = Modifier.size(15.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Lifetime", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
+                        FilledTonalButton(
+                            onClick = onApproveLifetime,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) {
+                            Icon(Icons.Default.AllInclusive, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Lifetime", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
 
-                            OutlinedButton(
-                                onClick = onDeclineOrRevoke,
-                                modifier = Modifier.height(40.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
-                                contentPadding = PaddingValues(horizontal = 10.dp)
-                            ) {
-                                Text("Decline", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
+                        OutlinedButton(
+                            onClick = onDeclineOrRevoke,
+                            modifier = Modifier.height(40.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                            contentPadding = PaddingValues(horizontal = 10.dp)
+                        ) {
+                            Text("Decline", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
 
-                            IconButton(
-                                onClick = onDeleteUser,
-                                modifier = Modifier.size(38.dp),
-                                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                            ) {
-                                Icon(Icons.Default.DeleteOutline, contentDescription = "Delete Account")
-                            }
+                        IconButton(
+                            onClick = onDeleteUser,
+                            modifier = Modifier.size(38.dp),
+                            colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Delete Account")
                         }
                     }
+                }
 
-                    isRevoked || isExpired -> {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                com.example.domain.model.AccountLifecycleStatus.REVOKED,
+                com.example.domain.model.AccountLifecycleStatus.EXPIRED -> {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = onApprove30Days,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF2E7D32),
+                                contentColor = Color.White
+                            )
                         ) {
-                            Button(
-                                onClick = onApprove30Days,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(40.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF2E7D32),
-                                    contentColor = Color.White
-                                )
-                            ) {
-                                Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Approve 30d", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Approve 30d", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
 
-                            FilledTonalButton(
-                                onClick = onUpdateExpiry,
-                                modifier = Modifier.height(40.dp),
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(Icons.Default.EditCalendar, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Custom Plan", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
+                        FilledTonalButton(
+                            onClick = onUpdateExpiry,
+                            modifier = Modifier.height(40.dp),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Default.EditCalendar, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Custom Plan", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
 
-                            IconButton(
-                                onClick = onDeleteUser,
-                                modifier = Modifier.size(38.dp),
-                                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                            ) {
-                                Icon(Icons.Default.DeleteOutline, contentDescription = "Delete Account")
-                            }
+                        IconButton(
+                            onClick = onDeleteUser,
+                            modifier = Modifier.size(38.dp),
+                            colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Delete Account")
                         }
                     }
+                }
 
-                    else -> {
-                        // Active Approved User Controls
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                com.example.domain.model.AccountLifecycleStatus.ADMIN,
+                com.example.domain.model.AccountLifecycleStatus.ACTIVE -> {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        FilledTonalButton(
+                            onClick = onResetDevice,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(38.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp)
                         ) {
-                            FilledTonalButton(
-                                onClick = onResetDevice,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(38.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp)
-                            ) {
-                                Icon(Icons.Default.PhonelinkErase, contentDescription = null, modifier = Modifier.size(15.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Reset Device", fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                            }
+                            Icon(Icons.Default.PhonelinkErase, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Reset Device", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
 
-                            OutlinedButton(
-                                onClick = onToggleAdminRole,
-                                modifier = Modifier.height(38.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp)
-                            ) {
-                                Text(
-                                    text = if (user.isAdmin) "Make User" else "Make Admin",
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 11.sp
-                                )
-                            }
+                        OutlinedButton(
+                            onClick = onToggleAdminRole,
+                            modifier = Modifier.height(38.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp)
+                        ) {
+                            Text(
+                                text = if (user.isAdmin) "Make User" else "Make Admin",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 11.sp
+                            )
+                        }
 
-                            OutlinedButton(
-                                onClick = onDeclineOrRevoke,
-                                modifier = Modifier.height(38.dp),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
-                                contentPadding = PaddingValues(horizontal = 10.dp)
-                            ) {
-                                Text("Revoke", fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                            }
+                        OutlinedButton(
+                            onClick = onDeclineOrRevoke,
+                            modifier = Modifier.height(38.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                            contentPadding = PaddingValues(horizontal = 10.dp)
+                        ) {
+                            Text("Revoke", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
 
-                            IconButton(
-                                onClick = onDeleteUser,
-                                modifier = Modifier.size(36.dp),
-                                colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                            ) {
-                                Icon(Icons.Default.DeleteOutline, contentDescription = "Delete")
-                            }
+                        IconButton(
+                            onClick = onDeleteUser,
+                            modifier = Modifier.size(36.dp),
+                            colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = "Delete")
                         }
                     }
                 }

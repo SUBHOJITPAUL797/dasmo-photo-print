@@ -13,4 +13,28 @@ data class UserAccount(
     val registrationTimestamp: Long = 0L,
     val lastActiveTimestamp: Long = 0L,
     val appSource: String = "DASMO Photo Print"
-)
+) {
+    fun resolveLifecycleStatus(
+        nowMs: Long = System.currentTimeMillis(),
+        superAdminEmail: String = "subhojitpaul26042004@gmail.com"
+    ): AccountLifecycleStatus {
+        val cleanEmail = email.trim().lowercase()
+        return when {
+            cleanEmail == superAdminEmail -> AccountLifecycleStatus.SUPER_ADMIN
+            isAdmin || role.equals("admin", ignoreCase = true) -> AccountLifecycleStatus.ADMIN
+            status.equals("rejected", ignoreCase = true) || (!isApproved && !status.equals("pending", ignoreCase = true)) -> AccountLifecycleStatus.REVOKED
+            !isApproved || status.equals("pending", ignoreCase = true) -> AccountLifecycleStatus.PENDING
+            expiryTimestamp in 1..<nowMs -> AccountLifecycleStatus.EXPIRED
+            else -> AccountLifecycleStatus.ACTIVE
+        }
+    }
+}
+
+enum class AccountLifecycleStatus {
+    SUPER_ADMIN,
+    ADMIN,
+    PENDING,
+    ACTIVE,
+    EXPIRED,
+    REVOKED
+}
