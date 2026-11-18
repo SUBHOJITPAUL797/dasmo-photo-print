@@ -627,6 +627,11 @@ fun SizeInputScreen(
     }
 }
 
+private enum class DimensionPreviewTab {
+    SINGLE_UNIT,
+    SHEET_GRID
+}
+
 @Composable
 fun DimensionPreview(
     mode: ProjectMode,
@@ -650,7 +655,7 @@ fun DimensionPreview(
     val spacing = spacingStr.toFloatOrNull() ?: 0.2f
     val margin = marginStr.toFloatOrNull() ?: 1.0f
 
-    var selectedTab by remember { mutableStateOf(0) } // 0 = Single Unit Spec, 1 = Sheet Grid Spacing
+    var selectedTab by remember { mutableStateOf(DimensionPreviewTab.SINGLE_UNIT) }
 
     Card(
         modifier = modifier
@@ -692,8 +697,12 @@ fun DimensionPreview(
                     .padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                listOf("Single Unit Spec", "${paperSpec.name} Grid").forEachIndexed { index, title ->
-                    val isSelected = selectedTab == index
+                val tabs = listOf(
+                    DimensionPreviewTab.SINGLE_UNIT to "Single Unit Spec",
+                    DimensionPreviewTab.SHEET_GRID to "${paperSpec.name} Grid"
+                )
+                tabs.forEach { (tab, title) ->
+                    val isSelected = selectedTab == tab
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -702,7 +711,7 @@ fun DimensionPreview(
                                 if (isSelected) MaterialTheme.colorScheme.primary
                                 else Color.Transparent
                             )
-                            .clickable { selectedTab = index }
+                            .clickable { selectedTab = tab }
                             .padding(vertical = 8.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -725,43 +734,46 @@ fun DimensionPreview(
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 contentAlignment = Alignment.Center
             ) {
-                if (selectedTab == 0) {
-                    // Interactive aspect-ratio mock-up card
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .aspectRatio(aspect)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surface)
-                            .border(
-                                width = if (cuttingGuidesEnabled) (cuttingGuideThicknessPt * 1.2f).coerceIn(1.5f, 4f).dp else 1.dp,
-                                color = if (cuttingGuidesEnabled) Color(cuttingGuideColor) else MaterialTheme.colorScheme.outlineVariant,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                    ) {
-                        when (mode) {
-                            ProjectMode.ID_CARD -> DummyIdCardContent()
-                            ProjectMode.JOINT -> DummyJointPhotoContent()
-                            ProjectMode.SINGLE -> DummyPassportPhotoContent()
-                            ProjectMode.MULTI_PERSON -> DummyPassportPhotoContent()
-                            ProjectMode.BATCH_PAPER_SAVER -> DummyPassportPhotoContent()
+                when (selectedTab) {
+                    DimensionPreviewTab.SINGLE_UNIT -> {
+                        // Interactive aspect-ratio mock-up card
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .aspectRatio(aspect)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surface)
+                                .border(
+                                    width = if (cuttingGuidesEnabled) (cuttingGuideThicknessPt * 1.2f).coerceIn(1.5f, 4f).dp else 1.dp,
+                                    color = if (cuttingGuidesEnabled) Color(cuttingGuideColor) else MaterialTheme.colorScheme.outlineVariant,
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                        ) {
+                            when (mode) {
+                                ProjectMode.ID_CARD -> DummyIdCardContent()
+                                ProjectMode.JOINT -> DummyJointPhotoContent()
+                                ProjectMode.SINGLE -> DummyPassportPhotoContent()
+                                ProjectMode.MULTI_PERSON -> DummyPassportPhotoContent()
+                                ProjectMode.BATCH_PAPER_SAVER -> DummyPassportPhotoContent()
+                            }
                         }
                     }
-                } else {
-                    // Interactive Sheet Grid preview showing precise Spacing and Cutting Guides
-                    A4SheetPreviewCanvas(
-                        validW = validW,
-                        validH = validH,
-                        spacing = spacing,
-                        margin = margin,
-                        cuttingGuidesEnabled = cuttingGuidesEnabled,
-                        cuttingGuideColor = cuttingGuideColor,
-                        cuttingGuideStyle = cuttingGuideStyle,
-                        cuttingGuideThicknessPt = cuttingGuideThicknessPt,
-                        paperWidthCm = paperSpec.widthCm,
-                        paperHeightCm = paperSpec.heightCm,
-                        mode = mode
-                    )
+                    DimensionPreviewTab.SHEET_GRID -> {
+                        // Interactive Sheet Grid preview showing precise Spacing and Cutting Guides
+                        A4SheetPreviewCanvas(
+                            validW = validW,
+                            validH = validH,
+                            spacing = spacing,
+                            margin = margin,
+                            cuttingGuidesEnabled = cuttingGuidesEnabled,
+                            cuttingGuideColor = cuttingGuideColor,
+                            cuttingGuideStyle = cuttingGuideStyle,
+                            cuttingGuideThicknessPt = cuttingGuideThicknessPt,
+                            paperWidthCm = paperSpec.widthCm,
+                            paperHeightCm = paperSpec.heightCm,
+                            mode = mode
+                        )
+                    }
                 }
             }
 

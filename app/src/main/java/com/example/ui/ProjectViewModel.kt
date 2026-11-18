@@ -305,6 +305,7 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
         private set
 
     private var historyJob: kotlinx.coroutines.Job? = null
+    private var savePdfJob: kotlinx.coroutines.Job? = null
 
     private fun captureCurrentState(): HistoryState {
         return HistoryState(
@@ -324,7 +325,12 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
             jointDividerLinesEnabled = jointDividerLinesEnabled,
             jointDividerColor = jointDividerColor,
             pageOrientation = pageOrientation,
-            idCardArrangement = idCardArrangement
+            idCardArrangement = idCardArrangement,
+            selectedPaperSpec = selectedPaperSpec,
+            compactPacking = compactPacking,
+            batchItemsSnapshot = batchItems.map { it.copy() },
+            quantityA = quantityA,
+            quantityB = quantityB
         )
     }
 
@@ -398,6 +404,15 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
         jointDividerColor = state.jointDividerColor
         pageOrientation = state.pageOrientation
         idCardArrangement = state.idCardArrangement
+        selectedPaperSpec = state.selectedPaperSpec
+        compactPacking = state.compactPacking
+        quantityA = state.quantityA
+        quantityB = state.quantityB
+
+        if (state.batchItemsSnapshot.isNotEmpty()) {
+            batchItems.clear()
+            batchItems.addAll(state.batchItemsSnapshot.map { it.copy() })
+        }
 
         // Re-generate joint template composite if necessary
         if ((mode == ProjectMode.JOINT || mode == ProjectMode.ID_CARD) && cropABitmap != null && cropBBitmap != null) {
@@ -750,10 +765,10 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
     }
 
     fun saveProjectPdf(context: Context, targetUri: Uri) {
-        if (pdfExportState is PdfExportState.Compiling) return
+        savePdfJob?.cancel()
         pdfExportState = PdfExportState.Compiling
 
-        viewModelScope.launch {
+        savePdfJob = viewModelScope.launch {
             try {
                 val pages = computedPages
                 val bitmap = finalUnitBitmap
@@ -863,6 +878,8 @@ class ProjectViewModel(private val repository: ProjectRepository) : ViewModel() 
                 } else {
                     pdfExportState = PdfExportState.Error("No photo or layout pages available to compile.")
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 e.printStackTrace()
                 pdfExportState = PdfExportState.Error("Error saving PDF: ${e.message}")
@@ -963,7 +980,12 @@ data class HistoryState(
     val jointDividerLinesEnabled: Boolean,
     val jointDividerColor: Int,
     val pageOrientation: PageOrientation,
-    val idCardArrangement: String
+    val idCardArrangement: String,
+    val selectedPaperSpec: PaperSizeSpec = PaperSizeSpec.A4,
+    val compactPacking: Boolean = true,
+    val batchItemsSnapshot: List<BatchItem> = emptyList(),
+    val quantityA: Int = 8,
+    val quantityB: Int = 8
 )
 
 class ProjectViewModelFactory(private val repository: ProjectRepository) : ViewModelProvider.Factory {

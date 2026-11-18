@@ -30,6 +30,7 @@ import com.example.ui.components.ClayArtworkBadge
 import com.example.ui.components.ClayCard
 import com.example.ui.components.ClayIconOrb
 import com.example.ui.components.ClayPillBadge
+import com.example.ui.components.ClayWizardStepBanner
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,27 +80,15 @@ fun ModeSelectScreen(
                 .padding(horizontal = 18.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Wizard Step Progress
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Step 1 of 5",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                LinearProgressIndicator(
-                    progress = { 0.2f },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)),
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
+            // 3D Claymorphic Wizard Step 1 Banner
+            ClayWizardStepBanner(
+                stepLabel = "STEP 1 OF 5",
+                title = "Choose Studio Job Mode",
+                subtitle = "Select single passport, mixed batch saver, joint couple, ID card, or 2-client sheet",
+                progress = 0.2f,
+                accentColor = MaterialTheme.colorScheme.primary,
+                artworkRes = R.drawable.img_clay_studio_hero
+            )
 
             // Mode 1: Single Passport Photo (with 3D Clay Passport Artwork)
             ClayJobModeCard(

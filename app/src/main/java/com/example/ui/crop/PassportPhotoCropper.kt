@@ -81,6 +81,7 @@ fun PassportPhotoCropper(
 
     // Explicit Tool Tab State Machine
     var activeTab by remember { mutableStateOf(CropperToolTab.FRAME_ZOOM) }
+    var isExportingFinalCrop by remember { mutableStateOf(false) }
 
     // Navigation and status
     var scale by remember { mutableStateOf(1.0f) }
@@ -719,130 +720,161 @@ fun PassportPhotoCropper(
                         }
                         Button(
                             onClick = {
-                                if (viewWidth > 0 && viewHeight > 0) {
+                                if (viewWidth > 0 && viewHeight > 0 && !isExportingFinalCrop) {
+                                    isExportingFinalCrop = true
                                     coroutineScope.launch {
-                                        val effectiveKeyMode = when (val mode = backgroundKeyMode) {
-                                            is BackgroundKeyMode.EyedropperSampling -> mode.previousMode
-                                            else -> mode
-                                        }
-                                        // Perform high-res cropping mathematically mapping display matrix to bitmap pixels
-                                        val cropFrameH = if (viewWidth / viewHeight > aspectRatio) {
-                                            viewHeight * 0.75f
-                                        } else {
-                                            (viewWidth * 0.75f) / aspectRatio
-                                        }
-                                        val cropFrameW = cropFrameH * aspectRatio
-                                        val cropLeft = (viewWidth - cropFrameW) / 2f
-                                        val cropTop = (viewHeight - cropFrameH) / 2f
+                                        try {
+                                            val effectiveKeyMode = when (val mode = backgroundKeyMode) {
+                                                is BackgroundKeyMode.EyedropperSampling -> mode.previousMode
+                                                else -> mode
+                                            }
+                                            // Perform high-res cropping mathematically mapping display matrix to bitmap pixels
+                                            val cropFrameH = if (viewWidth / viewHeight > aspectRatio) {
+                                                viewHeight * 0.75f
+                                            } else {
+                                                (viewWidth * 0.75f) / aspectRatio
+                                            }
+                                            val cropFrameW = cropFrameH * aspectRatio
+                                            val cropLeft = (viewWidth - cropFrameW) / 2f
+                                            val cropTop = (viewHeight - cropFrameH) / 2f
 
-                                        // Create output cropped bitmap
-                                        val targetH = 1200f
-                                        val targetW = targetH * aspectRatio
-                                        val cropped = Bitmap.createBitmap(targetW.toInt(), targetH.toInt(), Bitmap.Config.ARGB_8888)
-                                        val canvas = Canvas(cropped)
-                                        canvas.drawColor(
-                                            if (effectiveKeyMode is BackgroundKeyMode.SmartAiKeyed || effectiveKeyMode is BackgroundKeyMode.ColorKeyed)
-                                                targetReplacementBgColor
-                                            else
-                                                Color.WHITE
-                                        )
+                                            // Create output cropped bitmap
+                                            val targetH = 1200f
+                                            val targetW = targetH * aspectRatio
+                                            val cropped = Bitmap.createBitmap(targetW.toInt(), targetH.toInt(), Bitmap.Config.ARGB_8888)
+                                            val canvas = Canvas(cropped)
+                                            canvas.drawColor(
+                                                if (effectiveKeyMode is BackgroundKeyMode.SmartAiKeyed || effectiveKeyMode is BackgroundKeyMode.ColorKeyed)
+                                                    targetReplacementBgColor
+                                                else
+                                                    Color.WHITE
+                                            )
 
-                                        // Apply studio enhancements on raw high-res bitmap
-                                        val filteredRaw = if (brightness != 0.0f || contrast != 1.0f || saturation != 1.0f || isBlackAndWhite) {
-                                            try {
-                                                BitmapUtils.applyStudioFilters(rawBitmap, brightness, contrast, saturation, isBlackAndWhite)
-                                            } catch (e: Exception) {
+                                            // Apply studio enhancements on raw high-res bitmap
+                                            val filteredRaw = if (brightness != 0.0f || contrast != 1.0f || saturation != 1.0f || isBlackAndWhite) {
+                                                try {
+                                                    BitmapUtils.applyStudioFilters(rawBitmap, brightness, contrast, saturation, isBlackAndWhite)
+                                                } catch (e: Exception) {
+                                                    rawBitmap
+                                                }
+                                            } else {
                                                 rawBitmap
                                             }
-                                        } else {
-                                            rawBitmap
-                                        }
 
-                                        // Apply background replacement on the FULL resolution filteredRaw on Confirm
-                                        val fullResSource = when (effectiveKeyMode) {
-                                            is BackgroundKeyMode.SmartAiKeyed -> {
-                                                backgroundKeyMode = effectiveKeyMode.copy(isProcessing = true)
-                                                try {
-                                                    val options = SubjectSegmenterOptions.Builder()
-                                                        .enableForegroundBitmap()
-                                                        .build()
-                                                    val segmenter = SubjectSegmentation.getClient(options)
-                                                    val image = InputImage.fromBitmap(filteredRaw, 0)
-                                                    val result = segmenter.process(image).await()
-                                                    result.foregroundBitmap ?: filteredRaw
-                                                } catch (e: Exception) {
-                                                    filteredRaw
-                                                } finally {
-                                                    backgroundKeyMode = effectiveKeyMode.copy(isProcessing = false)
+                                            // Apply background replacement on the FULL resolution filteredRaw on Confirm
+                                            val fullResSource = when (effectiveKeyMode) {
+                                                is BackgroundKeyMode.SmartAiKeyed -> {
+                                                    backgroundKeyMode = effectiveKeyMode.copy(isProcessing = true)
+                                                    try {
+                                                        val options = SubjectSegmenterOptions.Builder()
+                                                            .enableForegroundBitmap()
+                                                            .build()
+                                                        val segmenter = SubjectSegmentation.getClient(options)
+                                                        val image = InputImage.fromBitmap(filteredRaw, 0)
+                                                        val result = segmenter.process(image).await()
+                                                        val fg = result.foregroundBitmap
+                                                        if (fg != null) {
+                                                            val compositedBg = Bitmap.createBitmap(filteredRaw.width, filteredRaw.height, Bitmap.Config.ARGB_8888)
+                                                            val bgCanvas = Canvas(compositedBg)
+                                                            bgCanvas.drawColor(targetReplacementBgColor)
+                                                            val fgMatrix = Matrix().apply {
+                                                                postScale(
+                                                                    filteredRaw.width.toFloat() / fg.width.toFloat(),
+                                                                    filteredRaw.height.toFloat() / fg.height.toFloat()
+                                                                )
+                                                            }
+                                                            bgCanvas.drawBitmap(fg, fgMatrix, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+                                                            compositedBg
+                                                        } else {
+                                                            filteredRaw
+                                                        }
+                                                    } catch (e: Exception) {
+                                                        filteredRaw
+                                                    } finally {
+                                                        backgroundKeyMode = effectiveKeyMode.copy(isProcessing = false)
+                                                    }
                                                 }
+                                                is BackgroundKeyMode.ColorKeyed -> {
+                                                    val fraction = effectiveKeyMode.seedFraction
+                                                    val seedX = (filteredRaw.width * fraction.first).toInt().coerceIn(0, filteredRaw.width - 1)
+                                                    val seedY = (filteredRaw.height * fraction.second).toInt().coerceIn(0, filteredRaw.height - 1)
+                                                    BitmapUtils.replaceBackgroundColor(
+                                                        src = filteredRaw,
+                                                        colorToReplace = effectiveKeyMode.sampledColor,
+                                                        replacementColor = targetReplacementBgColor,
+                                                        tolerance = replaceTolerance,
+                                                        seedX = seedX,
+                                                        seedY = seedY
+                                                    )
+                                                }
+                                                is BackgroundKeyMode.Original,
+                                                is BackgroundKeyMode.EyedropperSampling -> filteredRaw
                                             }
-                                            is BackgroundKeyMode.ColorKeyed -> {
-                                                val fraction = effectiveKeyMode.seedFraction
-                                                val seedX = (filteredRaw.width * fraction.first).toInt().coerceIn(0, filteredRaw.width - 1)
-                                                val seedY = (filteredRaw.height * fraction.second).toInt().coerceIn(0, filteredRaw.height - 1)
-                                                BitmapUtils.replaceBackgroundColor(
-                                                    src = filteredRaw,
-                                                    colorToReplace = effectiveKeyMode.sampledColor,
-                                                    replacementColor = targetReplacementBgColor,
-                                                    tolerance = replaceTolerance,
-                                                    seedX = seedX,
-                                                    seedY = seedY
-                                                )
+
+                                            // Map display coordinates (view dimensions) back
+                                            val displayToCropScale = targetW / cropFrameW
+
+                                            val matrix = Matrix()
+                                            matrix.postTranslate(
+                                                -fullResSource.width / 2f,
+                                                -fullResSource.height / 2f
+                                            )
+
+                                            // Scale image to fill/fit view space (initial fitting)
+                                            val imgRatio = fullResSource.width.toFloat() / fullResSource.height.toFloat()
+                                            val initialScale = if (imgRatio > aspectRatio) {
+                                                cropFrameH / fullResSource.height.toFloat()
+                                            } else {
+                                                cropFrameW / fullResSource.width.toFloat()
                                             }
-                                            is BackgroundKeyMode.Original,
-                                            is BackgroundKeyMode.EyedropperSampling -> filteredRaw
+                                            matrix.postScale(initialScale * scale, initialScale * scale)
+
+                                            // Add the visual pan offsets
+                                            val initialCenterX = viewWidth / 2f
+                                            val initialCenterY = viewHeight / 2f
+                                            matrix.postTranslate(
+                                                initialCenterX + offset.x,
+                                                initialCenterY + offset.y
+                                            )
+
+                                            // Shift so that the crop box top-left is at (0, 0)
+                                            matrix.postTranslate(-cropLeft, -cropTop)
+
+                                            // Scale to high resolution target
+                                            matrix.postScale(displayToCropScale, displayToCropScale)
+
+                                            val paint = Paint().apply {
+                                                isAntiAlias = true
+                                                isFilterBitmap = true
+                                            }
+                                            canvas.drawBitmap(fullResSource, matrix, paint)
+
+                                            // Recycle fullResSource to save heap space if we generated a background replaced copy
+                                            if (fullResSource != rawBitmap && fullResSource != filteredRaw) {
+                                                fullResSource.recycle()
+                                            }
+
+                                            onCropCompleted(cropped)
+                                        } finally {
+                                            isExportingFinalCrop = false
                                         }
-
-                                        // Map display coordinates (view dimensions) back
-                                        val displayToCropScale = targetW / cropFrameW
-
-                                        val matrix = Matrix()
-                                        matrix.postTranslate(
-                                            -fullResSource.width / 2f,
-                                            -fullResSource.height / 2f
-                                        )
-
-                                        // Scale image to fill/fit view space (initial fitting)
-                                        val imgRatio = fullResSource.width.toFloat() / fullResSource.height.toFloat()
-                                        val initialScale = if (imgRatio > aspectRatio) {
-                                            cropFrameH / fullResSource.height.toFloat()
-                                        } else {
-                                            cropFrameW / fullResSource.width.toFloat()
-                                        }
-                                        matrix.postScale(initialScale * scale, initialScale * scale)
-
-                                        // Add the visual pan offsets
-                                        val initialCenterX = viewWidth / 2f
-                                        val initialCenterY = viewHeight / 2f
-                                        matrix.postTranslate(
-                                            initialCenterX + offset.x,
-                                            initialCenterY + offset.y
-                                        )
-
-                                        // Shift so that the crop box top-left is at (0, 0)
-                                        matrix.postTranslate(-cropLeft, -cropTop)
-
-                                        // Scale to high resolution target
-                                        matrix.postScale(displayToCropScale, displayToCropScale)
-
-                                        val paint = Paint().apply {
-                                            isAntiAlias = true
-                                            isFilterBitmap = true
-                                        }
-                                        canvas.drawBitmap(fullResSource, matrix, paint)
-
-                                        // Recycle fullResSource to save heap space if we generated a background replaced copy
-                                        if (fullResSource != rawBitmap && fullResSource != filteredRaw) {
-                                            fullResSource.recycle()
-                                        }
-
-                                        onCropCompleted(cropped)
                                     }
                                 }
                             },
+                            enabled = !isExportingFinalCrop,
                             modifier = Modifier.weight(1f).padding(start = 8.dp)
                         ) {
-                            Text("Save Photo")
+                            if (isExportingFinalCrop) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Saving...")
+                            } else {
+                                Text("Save Photo")
+                            }
                         }
                     }
                 }

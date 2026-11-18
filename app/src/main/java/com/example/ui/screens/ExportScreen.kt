@@ -122,11 +122,19 @@ fun ExportScreen(
         )
     }
 
-    // Trigger PDF generation into sandbox cache (debounced when renaming so typing is smooth)
+    // Trigger PDF generation & history persistence into sandbox cache (debounced when renaming, calibrating, or updating billing)
     var hasRenderedOnce by remember { mutableStateOf(false) }
-    LaunchedEffect(viewModel.filename) {
+    LaunchedEffect(
+        viewModel.filename,
+        viewModel.topOffsetMm,
+        viewModel.leftOffsetMm,
+        viewModel.customerName,
+        viewModel.customerPhone,
+        viewModel.ratePerSheet,
+        viewModel.extraServicesFee
+    ) {
         if (hasRenderedOnce) {
-            kotlinx.coroutines.delay(500)
+            kotlinx.coroutines.delay(450)
         }
         val targetCacheUri = localCachePdfUri
         viewModel.saveProjectPdf(context, targetCacheUri)
@@ -642,7 +650,6 @@ fun ExportScreen(
                                 onValueChange = {
                                     viewModel.topOffsetMm = it
                                     viewModel.computeCurrentLayout()
-                                    viewModel.saveProjectPdf(context, localCachePdfUri)
                                 },
                                 label = { Text("Top Offset (mm)") },
                                 modifier = Modifier.weight(1f).testTag("top_offset_field")
@@ -653,7 +660,6 @@ fun ExportScreen(
                                 onValueChange = {
                                     viewModel.leftOffsetMm = it
                                     viewModel.computeCurrentLayout()
-                                    viewModel.saveProjectPdf(context, localCachePdfUri)
                                 },
                                 label = { Text("Left Offset (mm)") },
                                 modifier = Modifier.weight(1f).testTag("left_offset_field")
